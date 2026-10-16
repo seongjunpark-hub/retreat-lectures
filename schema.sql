@@ -450,6 +450,13 @@ grant execute on function public.my_admin() to authenticated;
 grant execute on function public.set_my_district(text) to authenticated;
 grant execute on function public.staff_update_enrollment(uuid, text, text) to authenticated;
 grant execute on function public.staff_update_student(uuid, text, text, text) to authenticated;
+-- 간사/관리자 전용 함수는 로그인한 사용자만
+revoke execute on function public.staff_update_student(uuid, text, text, text) from anon;
+revoke execute on function public.staff_update_enrollment(uuid, text, text) from anon;
+revoke execute on function public.set_my_district(text) from anon;
+revoke execute on function public.my_admin() from anon;
+revoke execute on function public.is_owner() from anon;
+alter function public._student_json(public.students) set search_path = public;
 
 -- ---------------------------------------------------------
 -- 관리자 등록 — 아래 이메일을 본인 것으로 바꾸고 실행
