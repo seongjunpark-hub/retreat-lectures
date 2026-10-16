@@ -21,27 +21,45 @@
   </div>
 </div></header>
 
-<!-- ① 입장 화면 -->
+<!-- ① 입장 / 내 정보 화면 -->
 <main id="entry" class="wrap hidden">
   <div class="narrow">
     <div class="card">
-      <h2>입장하기</h2>
-      <p class="hint" style="margin:-6px 0 18px">신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.</p>
+      <h2 id="entryTitle">입장하기</h2>
+      <p class="hint" id="entryHint" style="margin:-6px 0 18px">신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.</p>
       <div class="field"><label for="name">이름</label><input id="name" autocomplete="name" maxlength="30"></div>
-      <div class="field"><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="01012345678" maxlength="13"></div>
-      <div class="field"><label>수련회 등록 상태</label>
-        <div class="seg" id="regSeg"><button type="button" data-v="가등록">가등록</button><button type="button" data-v="등록">등록</button></div>
+      <div class="field"><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="010-1234-5678" maxlength="13"></div>
+      <div class="field" id="phone2Wrap"><label for="phone2">휴대폰 번호 확인</label><input id="phone2" inputmode="numeric" autocomplete="off" placeholder="한 번 더 입력" maxlength="13">
+        <p class="hint" id="phoneMsg"></p></div>
+      <p class="hint hidden" id="lockHint" style="margin:-8px 0 16px">이미 특강을 신청해서 이름·번호는 바꿀 수 없어요. 바꾸려면 신청을 취소한 뒤 다시 해 주세요.</p>
+
+      <div class="field" id="regWrap"><label>수련회 등록 상태</label>
+        <div class="seg" id="regSeg"><button type="button" data-v="가등록">가등록</button><button type="button" data-v="등록">완등록</button></div>
       </div>
-      <div class="field"><label for="district">출신 지구</label>
+      <div class="field"><label for="district">지구</label>
         <select id="district">
           <option value="">선택하세요</option>
           <option>안동</option><option>영주</option><option>경주</option>
           <option>김천구미</option><option>포항</option><option value="그외">그 외</option>
         </select>
       </div>
-      <div class="field hidden" id="districtEtcWrap"><label for="districtEtc">지구 이름</label><input id="districtEtc" maxlength="20" placeholder="예: 대구"></div>
-      <div class="field hidden" id="codeWrap"><label for="code">입장 코드</label><input id="code" maxlength="20" placeholder="현장에서 안내받은 코드"></div>
+      <div class="field hidden" id="campusWrap"><label for="campus">캠퍼스</label>
+        <select id="campus"></select>
+        <input id="campusEtc" class="hidden" maxlength="30" placeholder="캠퍼스(학교) 이름" style="margin-top:8px">
+      </div>
+      <div class="hidden" id="etcWrap">
+        <div class="field"><label for="follow">어느 지구와 함께 참여하나요?</label>
+          <select id="follow"><option value="">선택하세요</option><option>안동</option><option>영주</option><option>경주</option><option>김천구미</option><option>포항</option></select></div>
+        <div class="field"><label for="church">출석 교회</label><input id="church" maxlength="30" placeholder="예: ○○교회"></div>
+      </div>
+      <div class="field"><label for="grade">학년</label>
+        <select id="grade"><option value="">선택하세요</option><option>1학년</option><option>2학년</option><option>3학년</option><option>4학년</option><option>5학년 이상</option><option>휴학생</option><option>졸업생</option></select></div>
+      <div class="field"><label>순장 / 순원</label>
+        <div class="seg" id="soonSeg"><button type="button" data-v="순장">순장</button><button type="button" data-v="순원">순원</button><button type="button" data-v="해당 없음">해당 없음</button></div>
+      </div>
+      <div class="field hidden" id="codeWrap"><label for="code">입장 코드</label><input id="code" maxlength="20" inputmode="numeric" placeholder="안내받은 코드"></div>
       <button class="big" id="enterBtn">입장하기</button>
+      <button class="big ghost hidden" id="cancelEditBtn" style="margin-top:8px">취소</button>
     </div>
     <a class="foot-link" href="admin.html">간사·관리자 로그인 →</a>
   </div>
@@ -73,45 +91,123 @@ let toastTimer;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200); }
 
 // ---------- 내 정보 (이 기기에 저장) ----------
-const KEY = 'rl_profile_v2';
+const KEY = 'rl_profile_v3';
+const DISTRICTS = ['안동','영주','경주','김천구미','포항'];
 function loadProfile(){ try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
 function saveProfile(p){ try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {} }
-let reg = '';
-function syncSeg(){ $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === reg)); }
+let reg = '', soon = '', editMode = false;
+const fmtPhone = v => { const d = v.replace(/\D/g, '').slice(0, 11); return d.length < 4 ? d : d.length < 8 ? d.slice(0,3) + '-' + d.slice(3) : d.slice(0,3) + '-' + d.slice(3,7) + '-' + d.slice(7); };
+const phoneOk = d => /^010\d{8}$/.test(d);
+function syncSeg(){
+  $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === reg));
+  $$('#soonSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === soon));
+}
 $('#regSeg').onclick = e => { const b = e.target.closest('button'); if (b) { reg = b.dataset.v; syncSeg(); } };
-$('#district').onchange = () => { const etc = $('#district').value === '그외'; $('#districtEtcWrap').classList.toggle('hidden', !etc); if (etc) $('#districtEtc').focus(); };
+$('#soonSeg').onclick = e => { const b = e.target.closest('button'); if (b) { soon = b.dataset.v; syncSeg(); } };
+
+function checkPhones(){
+  const a = $('#phone').value.replace(/\D/g, ''), b = $('#phone2').value.replace(/\D/g, ''), msg = $('#phoneMsg');
+  if (!a) { msg.textContent = ''; return; }
+  if (!phoneOk(a)) { msg.textContent = '010으로 시작하는 11자리 번호를 입력해 주세요.'; msg.style.color = 'var(--warn)'; return; }
+  if (!b) { msg.textContent = ''; return; }
+  if (a !== b) { msg.textContent = '두 번호가 달라요. 다시 확인해 주세요.'; msg.style.color = 'var(--warn)'; return; }
+  msg.textContent = '✓ 번호가 일치해요'; msg.style.color = 'var(--ok)';
+}
+['phone','phone2'].forEach(id => $('#' + id).addEventListener('input', e => { e.target.value = fmtPhone(e.target.value); checkPhones(); }));
+
+function campusOptions(d){
+  const list = (state?.settings.campuses || {})[d] || [];
+  const sel = $('#campus');
+  if (!list.length) { sel.classList.add('hidden'); $('#campusEtc').classList.remove('hidden'); return; }
+  sel.classList.remove('hidden');
+  sel.innerHTML = '<option value="">선택하세요</option>' + list.map(c => `<option>${esc(c)}</option>`).join('') + '<option value="__etc">기타 (직접 입력)</option>';
+  $('#campusEtc').classList.toggle('hidden', sel.value !== '__etc');
+}
+function syncDistrict(){
+  const d = $('#district').value;
+  $('#campusWrap').classList.toggle('hidden', !DISTRICTS.includes(d));
+  $('#etcWrap').classList.toggle('hidden', d !== '그외');
+  if (DISTRICTS.includes(d)) campusOptions(d);
+}
+$('#district').onchange = syncDistrict;
+$('#campus').onchange = () => { const etc = $('#campus').value === '__etc'; $('#campusEtc').classList.toggle('hidden', !etc); if (etc) $('#campusEtc').focus(); };
 
 function fillForm(p){
-  if (!p) return;
-  $('#name').value = p.name || ''; $('#phone').value = p.phone || ''; reg = p.reg || ''; syncSeg();
-  const d = p.district || '';
-  if (d.startsWith('그외')) { $('#district').value = '그외'; $('#districtEtc').value = d.replace(/^그외\(|\)$/g, ''); }
-  else $('#district').value = d;
-  $('#district').onchange(); $('#code').value = p.code || '';
+  p = p || {};
+  $('#name').value = p.name || ''; $('#phone').value = fmtPhone(p.phone || ''); $('#phone2').value = fmtPhone(p.phone || '');
+  reg = p.reg || ''; soon = p.soon || ''; syncSeg();
+  $('#district').value = p.district || ''; syncDistrict();
+  if (p.campus) {
+    const opts = [...$('#campus').options].map(o => o.value);
+    if (!$('#campus').classList.contains('hidden') && opts.includes(p.campus)) $('#campus').value = p.campus;
+    else { if (!$('#campus').classList.contains('hidden')) $('#campus').value = '__etc'; $('#campusEtc').value = p.campus; $('#campusEtc').classList.remove('hidden'); }
+  }
+  $('#follow').value = p.follow || ''; $('#church').value = p.church || '';
+  $('#grade').value = p.grade || ''; $('#code').value = p.code || '';
+  checkPhones();
 }
-$('#enterBtn').onclick = () => {
-  const name = $('#name').value.trim(), phone = $('#phone').value.replace(/\D/g, '');
-  const d = $('#district').value, etc = $('#districtEtc').value.trim();
-  const district = d === '그외' ? (etc ? '그외(' + etc + ')' : '') : d;
-  const code = $('#code').value.trim();
-  if (!name) { toast('이름을 입력해 주세요.'); $('#name').focus(); return; }
-  if (phone.length < 10 || phone.length > 11) { toast('휴대폰 번호를 정확히 입력해 주세요.'); $('#phone').focus(); return; }
-  if (!reg) { toast('가등록/등록 중 하나를 선택해 주세요.'); return; }
-  if (!district) { toast(d === '그외' ? '지구 이름을 입력해 주세요.' : '출신 지구를 선택해 주세요.'); return; }
-  if (state?.settings.needs_code && !code) { toast('입장 코드를 입력해 주세요.'); $('#code').focus(); return; }
-  profile = { name, phone, reg, district, code };
-  saveProfile(profile); showBoard();
+function readForm(){
+  const d = $('#district').value;
+  let campus = '';
+  if (DISTRICTS.includes(d)) campus = $('#campus').classList.contains('hidden') || $('#campus').value === '__etc' ? $('#campusEtc').value.trim() : $('#campus').value;
+  return {
+    name: $('#name').value.trim(), phone: $('#phone').value.replace(/\D/g, ''), phone2: $('#phone2').value.replace(/\D/g, ''),
+    reg, soon, district: d, campus, grade: $('#grade').value,
+    follow: d === '그외' ? $('#follow').value : '', church: d === '그외' ? $('#church').value.trim() : '',
+    code: $('#code').value.trim()
+  };
+}
+function problem(f, strictPhone2){
+  if (!f.name) return ['이름을 입력해 주세요.', '#name'];
+  if (!phoneOk(f.phone)) return ['휴대폰 번호를 010으로 시작하는 11자리로 입력해 주세요.', '#phone'];
+  if (strictPhone2 && f.phone !== f.phone2) return ['휴대폰 번호 확인이 맞지 않아요.', '#phone2'];
+  if (!f.reg) return ['가등록/완등록 중 하나를 선택해 주세요.'];
+  if (!f.district) return ['지구를 선택해 주세요.', '#district'];
+  if (DISTRICTS.includes(f.district) && !f.campus) return ['캠퍼스를 선택해 주세요.', '#campus'];
+  if (f.district === '그외' && !f.follow) return ['함께 참여하는 지구를 선택해 주세요.', '#follow'];
+  if (f.district === '그외' && !f.church) return ['출석 교회를 입력해 주세요.', '#church'];
+  if (!f.grade) return ['학년을 선택해 주세요.', '#grade'];
+  if (!f.soon) return ['순장/순원 여부를 선택해 주세요.'];
+  if (state?.settings.needs_code && !f.code) return ['입장 코드를 입력해 주세요.', '#code'];
+  return null;
+}
+$('#enterBtn').onclick = async () => {
+  const f = readForm(), locked = editMode && mine.length;
+  const pr = problem(f, !locked);
+  if (pr) { toast(pr[0]); if (pr[1]) $(pr[1]).focus(); return; }
+  delete f.phone2;
+  if (locked) {   // 이미 신청한 학생: 신청 내역의 정보도 함께 고침
+    const { data, error } = await sb.rpc('update_my_info', { p_name: f.name, p_phone: f.phone, p_district: f.district, p_campus: f.campus,
+      p_grade: f.grade, p_soon_role: f.soon, p_follow_district: f.follow, p_church: f.church });
+    if (error || !data?.ok) { toast('저장 실패: ' + (data?.message || '잠시 후 다시 시도해 주세요.')); return; }
+  }
+  profile = f; saveProfile(profile);
+  if (editMode) toast('내 정보를 저장했어요.');
+  showBoard();
 };
-$('#editInfo').onclick = () => { fillForm(profile); showEntry(); };
+$('#editInfo').onclick = () => { fillForm(profile); showEntry(true); };
+$('#cancelEditBtn').onclick = () => showBoard();
 
-function showEntry(){
+function showEntry(edit){
+  editMode = !!edit;
+  const locked = editMode && mine.length > 0;
+  $('#entryTitle').textContent = editMode ? '내 정보 변경' : '입장하기';
+  $('#entryHint').textContent = editMode ? '바꿀 내용을 고친 뒤 저장해 주세요.' : '신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.';
+  $('#enterBtn').textContent = editMode ? '저장하고 돌아가기' : '입장하기';
+  $('#cancelEditBtn').classList.toggle('hidden', !editMode);
+  $('#name').readOnly = $('#phone').readOnly = locked;
+  $('#phone2Wrap').classList.toggle('hidden', locked);
+  $('#lockHint').classList.toggle('hidden', !locked);
+  $('#regWrap').classList.toggle('hidden', locked);
   $('#entry').classList.remove('hidden'); $('#board').classList.add('hidden'); $('#who').classList.add('hidden');
   window.scrollTo(0, 0);
 }
 function showBoard(){
+  editMode = false;
   $('#entry').classList.add('hidden'); $('#board').classList.remove('hidden'); $('#who').classList.remove('hidden');
   $('#whoName').textContent = profile.name;
-  $('#whoMeta').textContent = profile.district.replace(/^그외\((.*)\)$/, '$1') + ' · ' + profile.reg;
+  const where = profile.district === '그외' ? `${profile.church} (${profile.follow}지구와 함께)` : `${profile.district} · ${profile.campus}`;
+  $('#whoMeta').textContent = `${where} · ${profile.grade}`;
   window.scrollTo(0, 0);
   loadMine();
   if (state) renderBoard();
@@ -148,8 +244,8 @@ async function load(){
   $('#codeWrap').classList.toggle('hidden', !s.needs_code);
   if (first) {
     profile = loadProfile();
-    if (profile && profile.name && profile.reg && profile.district && (!s.needs_code || profile.code)) showBoard();
-    else { fillForm(profile); showEntry(); }
+    if (profile && !problem({ ...profile, phone2: profile.phone }, false)) showBoard();
+    else { fillForm(profile); showEntry(false); }
   }
   lastPhase = phase();
   renderBoard();
@@ -233,12 +329,14 @@ $('#lectures').addEventListener('click', async e => {
   const l = state.lectures.find(x => x.id === btn.dataset.id);
   pending = l.id; renderLectures();
   const { data, error } = await sb.rpc('enroll', { p_lecture_id: l.id, p_name: profile.name, p_phone: profile.phone,
-    p_reg_status: profile.reg, p_district: profile.district, p_code: profile.code || '' });
+    p_reg_status: profile.reg, p_district: profile.district, p_code: profile.code || '',
+    p_campus: profile.campus || '', p_grade: profile.grade || '', p_soon_role: profile.soon || '',
+    p_follow_district: profile.follow || '', p_church: profile.church || '' });
   pending = null;
   if (error) toast('네트워크 오류예요. 다시 눌러 주세요.');
   else {
     toast(data.message);
-    if (data.code === 'bad_code') { fillForm(profile); showEntry(); $('#code').focus(); }
+    if (data.code === 'bad_code') { fillForm(profile); showEntry(true); $('#code').focus(); }
   }
   await loadMine(); await load();
   if (data?.ok) window.scrollTo({ top: 0, behavior: 'smooth' });

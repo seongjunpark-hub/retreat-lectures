@@ -10,7 +10,7 @@
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <div><p class="eyebrow">관리자</p><h1>선택특강 관리</h1></div>
+  <div><p class="eyebrow">간사·관리자</p><h1 id="pageTitle">선택특강 관리</h1></div>
   <div class="who hidden" id="who"><span id="whoEmail"></span><br><button id="logout">로그아웃</button></div>
 </div></header>
 
@@ -18,8 +18,8 @@
 <main id="loginBox" class="wrap hidden">
   <div class="narrow">
     <div class="card">
-      <h2 id="loginTitle">관리자 로그인</h2>
-      <p class="hint" id="loginHint" style="margin:-6px 0 18px">관리자로 등록된 이메일과 비밀번호로 로그인하세요.</p>
+      <h2 id="loginTitle">간사·관리자 로그인</h2>
+      <p class="hint" id="loginHint" style="margin:-6px 0 18px">등록된 이메일과 비밀번호로 로그인하세요.</p>
       <div class="field"><label for="email">이메일</label><input id="email" type="email" autocomplete="username"></div>
       <div class="field"><label for="pw">비밀번호</label><input id="pw" type="password" autocomplete="current-password"></div>
       <div class="field hidden" id="pw2Wrap"><label for="pw2">비밀번호 확인</label><input id="pw2" type="password" autocomplete="new-password"></div>
@@ -32,14 +32,31 @@
 
 <main id="app" class="wrap hidden">
   <div class="tabs">
-    <button data-tab="lectures" class="on">특강 관리</button>
+    <button data-tab="district" class="on">우리 지구</button>
+    <button data-tab="lectures" id="lecturesTab" class="hidden">특강 관리</button>
     <button data-tab="enrolls">신청 현황</button>
-    <button data-tab="settings">신청 설정</button>
-    <button data-tab="admins">관리자</button>
+    <button data-tab="settings" id="settingsTab" class="hidden">신청 설정</button>
+    <button data-tab="admins" id="adminsTab" class="hidden">간사 관리</button>
   </div>
 
+  <!-- 우리 지구 -->
+  <section data-pane="district">
+    <div class="card">
+      <div class="toolbar" style="margin:0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label for="myDistrict" style="margin:0">내 지구</label>
+          <select id="myDistrict" style="width:auto;min-width:150px"></select>
+          <input id="dEtc" class="hidden" placeholder="지구 이름 (예: 대구)" style="width:170px">
+        </div>
+        <input id="dSearch" placeholder="이름 검색" style="width:160px">
+      </div>
+      <div class="stat" id="dStats" style="margin-top:14px"></div>
+    </div>
+    <div class="card table-scroll" id="dList"></div>
+  </section>
+
   <!-- 특강 관리 -->
-  <section data-pane="lectures">
+  <section data-pane="lectures" class="hidden">
     <div class="toolbar">
       <span class="sum" id="lecSum"></span>
       <button id="newLec">＋ 새 특강 등록</button>
@@ -52,7 +69,7 @@
     <div class="card">
       <div class="stat" id="stats"></div>
       <div id="breakdown" class="table-scroll" style="margin-top:16px"></div>
-      <div class="actions"><button id="refreshEn" class="ghost">새로고침</button><button id="csv">CSV 다운로드</button></div>
+      <div class="actions"><button id="refreshEn" class="ghost">새로고침</button><button id="csv" class="owner-only">CSV 다운로드</button></div>
     </div>
     <div id="enList"></div>
   </section>
@@ -65,23 +82,28 @@
         <div class="full"><label>안내 문구 (학생 화면 상단)</label><textarea id="s_notice"></textarea></div>
         <div><label>신청 시작</label><input id="s_open_at" type="datetime-local"></div>
         <div><label>신청 마감 (비우면 계속 열림)</label><input id="s_close_at" type="datetime-local"></div>
-        <div class="full"><label>입장 코드 (비우면 사용 안 함)</label><input id="s_access_code" placeholder="예: 은혜2026"></div>
+        <div class="full"><label>입장 코드 (비우면 사용 안 함)</label><input id="s_access_code" placeholder="예: 20261228"></div>
+        <div class="full"><label>지구별 캠퍼스 목록 <span style="font-weight:400;color:var(--muted)">(쉼표로 구분 · 학생이 지구를 고르면 이 목록이 나와요)</span></label>
+          <div id="campusEditor" style="display:grid;gap:8px"></div></div>
       </div>
       <p class="hint">입장 코드는 현장에서만 알려 주면 외부인이 자리를 채우는 걸 막을 수 있어요.</p>
       <div class="actions"><button id="saveSet">저장</button></div>
     </div>
-    <a class="foot-link" href="./" target="_blank">학생 화면 새 창으로 보기 ↗</a>
   </section>
 
   <!-- 관리자 -->
   <section data-pane="admins" class="hidden">
     <div class="card">
-      <h2>관리자 추가</h2>
-      <div style="display:flex;gap:8px"><input id="newAdmin" type="email" placeholder="간사님 이메일"><button id="addAdmin" style="white-space:nowrap">추가</button></div>
+      <h2>간사 추가</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="newAdmin" type="email" placeholder="간사님 이메일" style="flex:1;min-width:200px">
+        <select id="newRole" style="width:auto"><option value="staff">간사</option><option value="owner">최고관리자</option></select>
+        <button id="addAdmin" style="white-space:nowrap">추가</button></div>
       <p class="hint">추가한 뒤 그 간사님께 알려 주세요: 관리자 화면 → <b>처음이에요? 계정 만들기</b> → 같은 이메일로 비밀번호 정하기</p>
     </div>
-    <div class="card"><h2>관리자 목록</h2><div id="adminList"></div></div>
+    <div class="card"><h2>간사 목록</h2><div id="adminList"></div></div>
   </section>
+
+  <a class="foot-link" href="./" target="_blank" style="font-size:15px;font-weight:600">학생 신청 화면 열기 ↗</a>
 </main>
 
 <!-- 특강 등록/수정 창 -->
@@ -110,7 +132,9 @@ const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let toastTimer;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000); }
-let lectures = [], enrolls = [], editingId = null, myEmail = '';
+let lectures = [], enrolls = [], editingId = null, myEmail = '', me = { role: 'staff', district: '' };
+const REG = r => r === '등록' ? '완등록' : (r || '');
+const DISTRICTS = ['안동','영주','경주','김천구미','포항'];
 
 // ---------- 로그인 ----------
 function showLogin(){ $('#loginBox').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#who').classList.add('hidden'); }
@@ -118,17 +142,27 @@ async function boot(){
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { showLogin(); return; }
   const { data: ok } = await sb.rpc('is_admin');
-  if (!ok) { toast('관리자로 등록되지 않은 계정이에요.'); await sb.auth.signOut(); showLogin(); return; }
+  if (!ok) { toast('등록되지 않은 계정이에요. 최고관리자에게 추가를 요청하세요.'); await sb.auth.signOut(); showLogin(); return; }
   $('#loginBox').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#who').classList.remove('hidden');
   $('#whoEmail').textContent = session.user.email; myEmail = session.user.email.toLowerCase();
+  const { data: info } = await sb.rpc('my_admin');
+  if (info) me = info;
+  $('#adminsTab').classList.toggle('hidden', me.role !== 'owner');
+  $('#settingsTab').classList.toggle('hidden', me.role !== 'owner');
+  $('#lecturesTab').classList.toggle('hidden', me.role !== 'owner');
+  $$('.owner-only').forEach(x => x.classList.toggle('hidden', me.role !== 'owner'));
+  document.title = me.role === 'owner' ? '특강 관리자' : '간사 · 신청 현황';
+  $('#pageTitle').textContent = me.role === 'owner' ? '선택특강 관리' : '선택특강 신청 현황';
+  $('#whoEmail').textContent = session.user.email + (me.role === 'owner' ? ' · 최고관리자' : ' · 간사');
+  setupDistrict();
   await loadLectures();
   await Promise.all([loadSettings(), loadEnrolls()]);
 }
 let signupMode = false;
 $('#toggleMode').onclick = e => {
   e.preventDefault(); signupMode = !signupMode;
-  $('#loginTitle').textContent = signupMode ? '관리자 계정 만들기' : '관리자 로그인';
-  $('#loginHint').textContent = signupMode ? '관리자로 추가된 이메일로 비밀번호를 정하세요. (8자 이상)' : '관리자로 등록된 이메일과 비밀번호로 로그인하세요.';
+  $('#loginTitle').textContent = signupMode ? '간사 계정 만들기' : '간사·관리자 로그인';
+  $('#loginHint').textContent = signupMode ? '최고관리자가 추가해 준 이메일로 비밀번호를 정하세요. (8자 이상)' : '등록된 이메일과 비밀번호로 로그인하세요.';
   $('#pw2Wrap').classList.toggle('hidden', !signupMode);
   $('#loginBtn').textContent = signupMode ? '계정 만들기' : '로그인';
   $('#toggleMode').textContent = signupMode ? '이미 계정이 있어요 → 로그인' : '처음이에요? 계정 만들기';
@@ -161,7 +195,7 @@ $('#logout').onclick = async () => { await sb.auth.signOut(); location.reload();
 $$('.tabs button[data-tab]').forEach(b => b.onclick = () => {
   $$('.tabs button[data-tab]').forEach(x => x.classList.toggle('on', x === b));
   $$('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== b.dataset.tab));
-  if (b.dataset.tab === 'enrolls') loadEnrolls();
+  if (b.dataset.tab === 'enrolls' || b.dataset.tab === 'district') loadEnrolls();
   if (b.dataset.tab === 'admins') loadAdmins();
 });
 
@@ -230,7 +264,7 @@ $('#lecList').onclick = async e => {
 async function loadEnrolls(){
   const { data, error } = await sb.from('enrollments').select('*').order('created_at');
   if (error) { toast('신청 현황을 불러오지 못했어요.'); return; }
-  enrolls = data; renderEnrolls(); renderLectures();
+  enrolls = data; renderEnrolls(); renderLectures(); renderDistrict();
 }
 function renderEnrolls(){
   const cap = lectures.reduce((a, l) => a + l.capacity, 0);
@@ -240,10 +274,10 @@ function renderEnrolls(){
   const tbl = {};
   enrolls.forEach(e => { const k = dKey(e.district); tbl[k] ??= { 가등록: 0, 등록: 0, etc: new Set() };
     if (e.reg_status === '등록') tbl[k].등록++; else tbl[k].가등록++;
-    if (k === '그외') tbl[k].etc.add(e.district.replace(/^그외\(|\)$/g, '')); });
+    if (k === '그외') tbl[k].etc.add(e.church || e.district.replace(/^그외\(|\)$/g, '')); });
   const keys = [...ORDER, '그외', '미입력'].filter(k => tbl[k]);
   const tot = { 가등록: 0, 등록: 0 }; keys.forEach(k => { tot.가등록 += tbl[k].가등록; tot.등록 += tbl[k].등록; });
-  $('#breakdown').innerHTML = keys.length ? `<table><tr><th>출신 지구</th><th>가등록</th><th>등록</th><th>합계</th></tr>
+  $('#breakdown').innerHTML = keys.length ? `<table><tr><th>출신 지구</th><th>가등록</th><th>완등록</th><th>합계</th></tr>
     ${keys.map(k => `<tr><td>${esc(k)}${k === '그외' && tbl[k].etc.size ? `<br><small style="color:var(--muted)">${esc([...tbl[k].etc].join(', '))}</small>` : ''}</td>
       <td>${tbl[k].가등록}</td><td>${tbl[k].등록}</td><td><b>${tbl[k].가등록 + tbl[k].등록}</b></td></tr>`).join('')}
     <tr><td><b>합계</b></td><td><b>${tot.가등록}</b></td><td><b>${tot.등록}</b></td><td><b>${tot.가등록 + tot.등록}</b></td></tr></table>` : '';
@@ -253,9 +287,9 @@ function renderEnrolls(){
     const rows = enrolls.filter(e => e.lecture_id === l.id);
     return `<div class="card"><p class="num" style="margin:0;font-size:13px;font-weight:700;color:var(--accent)">특강 ${i + 1}</p>
       <h3>${esc(l.title)}</h3><p class="hint" style="margin:4px 0 0">${esc(l.speaker_name)} · <b>${rows.length}</b>/${l.capacity}명</p>
-      ${rows.length ? `<div class="table-scroll"><table style="margin-top:10px"><tr><th>#</th><th>이름</th><th>연락처</th><th>등록</th><th>지구</th><th>신청시각</th><th></th></tr>
-      ${rows.map((r, j) => `<tr><td>${j + 1}</td><td>${esc(r.student_name)}</td><td>${esc(phone(r.student_phone))}</td><td>${esc(r.reg_status)}</td><td>${esc(r.district)}</td><td>${time(r.created_at)}</td>
-        <td><button class="danger small" data-rm="${r.id}">삭제</button></td></tr>`).join('')}</table></div>`
+      ${rows.length ? `<div class="table-scroll"><table style="margin-top:10px"><tr><th>#</th><th>이름</th><th>연락처</th><th>지구</th><th>캠퍼스/교회</th><th>학년</th><th>순</th><th>등록</th><th>비고</th><th>신청시각</th><th></th></tr>
+      ${rows.map((r, j) => `<tr><td>${j + 1}</td><td>${esc(r.student_name)}</td><td>${esc(phone(r.student_phone))}</td><td>${esc(r.district)}</td><td>${esc(where(r))}</td><td>${esc(r.grade || '')}</td><td>${esc(r.soon_role || '')}</td><td>${esc(REG(r.reg_status))}</td><td>${esc(r.note || '')}</td><td>${time(r.created_at)}</td>
+        <td>${me.role === 'owner' ? `<button class="danger small" data-rm="${r.id}">삭제</button>` : ''}</td></tr>`).join('')}</table></div>`
       : '<p class="empty" style="padding:12px 0 0">아직 신청자가 없어요.</p>'}</div>`;
   }).join('');
 }
@@ -269,9 +303,9 @@ $('#enList').onclick = async e => {
 $('#csv').onclick = () => {
   const byId = Object.fromEntries(lectures.map(l => [l.id, l]));
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const lines = [['특강','강사','장소','이름','연락처','등록상태','출신지구','신청시각'].map(q).join(',')];
+  const lines = [['특강','강사','장소','이름','연락처','지구','캠퍼스','함께참여지구','교회','학년','순장/순원','등록상태','비고','신청시각'].map(q).join(',')];
   enrolls.forEach(e => { const l = byId[e.lecture_id] || {};
-    lines.push([l.title, l.speaker_name, l.location, e.student_name, e.student_phone, e.reg_status, e.district, new Date(e.created_at).toLocaleString('ko-KR')].map(q).join(','));
+    lines.push([l.title, l.speaker_name, l.location, e.student_name, e.student_phone, e.district, e.campus, e.follow_district, e.church, e.grade, e.soon_role, REG(e.reg_status), e.note, new Date(e.created_at).toLocaleString('ko-KR')].map(q).join(','));
   });
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '선택특강_신청현황.csv'; a.click();
@@ -284,6 +318,10 @@ async function loadSettings(){
   const { data, error } = await sb.from('settings').select('*').eq('id', 1).single();
   if (error) return;
   ['event_title','notice','access_code'].forEach(f => $('#s_' + f).value = data[f] ?? '');
+  const cm = data.campuses || {};
+  $('#campusEditor').innerHTML = DISTRICTS.map(d => `<div style="display:flex;align-items:center;gap:10px">
+    <span style="width:72px;font-weight:600;font-size:14px">${d}</span>
+    <input data-campus="${d}" value="${esc((cm[d] || []).join(', '))}" placeholder="예: 동국대, 위덕대"></div>`).join('');
   $('#s_open_at').value = toLocal(data.open_at); $('#s_close_at').value = toLocal(data.close_at);
 }
 $('#saveSet').onclick = async () => {
@@ -293,7 +331,8 @@ $('#saveSet').onclick = async () => {
     notice: $('#s_notice').value.trim(),
     access_code: $('#s_access_code').value.trim(),
     open_at: o ? new Date(o).toISOString() : null,
-    close_at: c ? new Date(c).toISOString() : null
+    close_at: c ? new Date(c).toISOString() : null,
+    campuses: Object.fromEntries($$('[data-campus]').map(i => [i.dataset.campus, i.value.split(/[,，\n]/).map(x => x.trim()).filter(Boolean)]))
   };
   if (row.open_at && row.close_at && row.close_at <= row.open_at) { toast('마감 시각이 시작보다 늦어야 해요.'); return; }
   const { error } = await sb.from('settings').update(row).eq('id', 1);
@@ -302,26 +341,103 @@ $('#saveSet').onclick = async () => {
 
 // ---------- 관리자 ----------
 async function loadAdmins(){
-  const { data, error } = await sb.from('admins').select('email').order('email');
+  const { data, error } = await sb.from('admins').select('email,role,district').order('role').order('email');
   if (error) { $('#adminList').innerHTML = '<p class="hint">목록을 불러오지 못했어요. schema.sql 최신본을 SQL Editor에서 한 번 더 Run 해 주세요.</p>'; return; }
   $('#adminList').innerHTML = data.map(a => `<div class="row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)">
-    <span>${esc(a.email)}${a.email.toLowerCase() === myEmail ? ' <small style="color:var(--muted)">(나)</small>' : ''}</span>
+    <span>${esc(a.email)}${a.email.toLowerCase() === myEmail ? ' <small style="color:var(--muted)">(나)</small>' : ''}<br>
+      <small style="color:var(--muted)">${a.role === 'owner' ? '최고관리자' : '간사'}${a.district ? ' · ' + esc(a.district) : ''}</small></span>
     ${a.email.toLowerCase() === myEmail ? '' : `<button class="danger small" data-rmadmin="${esc(a.email)}">삭제</button>`}</div>`).join('');
 }
 $('#addAdmin').onclick = async () => {
   const email = $('#newAdmin').value.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('이메일을 정확히 입력해 주세요.'); return; }
-  const { error } = await sb.from('admins').insert({ email });
-  if (error) { toast(/duplicate/i.test(error.message) ? '이미 관리자예요.' : '추가 실패: ' + error.message); return; }
+  const { error } = await sb.from('admins').insert({ email, role: $('#newRole').value });
+  if (error) { toast(/duplicate/i.test(error.message) ? '이미 등록된 이메일이에요.' : '추가 실패: ' + error.message); return; }
   $('#newAdmin').value = ''; toast('추가했어요. 간사님께 계정 만들기를 안내해 주세요.'); loadAdmins();
 };
 $('#newAdmin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#addAdmin').click(); });
 $('#adminList').onclick = async e => {
   const email = e.target.closest('[data-rmadmin]')?.dataset.rmadmin;
-  if (!email || !confirm(email + ' 님을 관리자에서 뺄까요?')) return;
+  if (!email || !confirm(email + ' 님을 목록에서 뺄까요? 더 이상 현황을 볼 수 없게 돼요.')) return;
   const { error } = await sb.from('admins').delete().eq('email', email);
   if (error) toast('삭제 실패'); else loadAdmins();
 };
+
+// ---------- 우리 지구 ----------
+function setupDistrict(){
+  const sel = $('#myDistrict');
+  sel.innerHTML = (me.role === 'owner' ? '<option value="*">전체 지구</option>' : '<option value="">지구 선택</option>')
+    + DISTRICTS.map(d => `<option>${d}</option>`).join('') + '<option value="그외">그 외</option>';
+  const d = me.district || (me.role === 'owner' ? '*' : '');
+  if (DISTRICTS.includes(d) || d === '*' || d === '') sel.value = d;
+  else { sel.value = '그외'; $('#dEtc').value = d.replace(/^그외\(|\)$/g, ''); }
+  $('#dEtc').classList.toggle('hidden', sel.value !== '그외');
+}
+function currentDistrict(){
+  const v = $('#myDistrict').value;
+  if (v === '그외') { const etc = $('#dEtc').value.trim(); return etc ? '그외(' + etc + ')' : '그외'; }
+  return v;
+}
+async function saveDistrict(){
+  $('#dEtc').classList.toggle('hidden', $('#myDistrict').value !== '그외');
+  const d = currentDistrict(); me.district = d;
+  await sb.rpc('set_my_district', { p_district: d });
+  renderDistrict();
+}
+$('#myDistrict').onchange = saveDistrict;
+$('#dEtc').onchange = saveDistrict;
+$('#dSearch').oninput = () => renderDistrict();
+
+function inDistrict(e, d){
+  if (d === '*') return true;
+  if (!d) return false;
+  if (d === '그외') return !DISTRICTS.includes(e.district);
+  return e.district === d || (e.district === '그외' && e.follow_district === d);
+}
+const where = e => DISTRICTS.includes(e.district) ? (e.campus || '') : `${e.church || e.district}${e.follow_district ? ' (그외·' + e.follow_district + ')' : ''}`;
+function renderDistrict(){
+  const d = currentDistrict(), q = $('#dSearch').value.trim();
+  if (!d) {
+    $('#dStats').innerHTML = '';
+    $('#dList').innerHTML = '<p class="empty">위에서 담당 지구를 골라 주세요. 다음에 들어올 때도 기억돼요.</p>';
+    return;
+  }
+  const byId = Object.fromEntries(lectures.map(l => [l.id, l]));
+  const all = enrolls.filter(e => inDistrict(e, d));
+  const rows = all.filter(e => !q || e.student_name.includes(q))
+    .sort((a, b) => a.student_name.localeCompare(b.student_name, 'ko'));
+  const ga = all.filter(e => e.reg_status !== '등록').length, wan = all.length - ga;
+  $('#dStats').innerHTML = `<div><b>${all.length}</b><span>신청 학생</span></div><div><b>${ga}</b><span>가등록</span></div><div><b>${wan}</b><span>완등록</span></div>`;
+  const phone = p => p.length === 11 ? p.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3') : p;
+  $('#dList').innerHTML = rows.length ? `<table><tr><th>이름</th><th>연락처</th>${d === '*' || d === '그외' ? '<th>지구</th>' : ''}<th>캠퍼스/교회</th><th>학년</th><th>순</th><th>신청 특강</th><th>등록 상태</th><th>비고</th></tr>
+    ${rows.map(e => `<tr data-row="${e.id}">
+      <td><b>${esc(e.student_name)}</b></td>
+      <td><a href="tel:${esc(e.student_phone)}">${esc(phone(e.student_phone))}</a></td>
+      ${d === '*' || d === '그외' ? `<td>${esc(e.district)}</td>` : ''}
+      <td>${esc(where(e))}</td><td>${esc(e.grade || '')}</td><td>${esc(e.soon_role || '')}</td>
+      <td>${esc(byId[e.lecture_id]?.title || '')}</td>
+      <td><select data-reg="${e.id}" style="width:auto;padding:6px 8px">
+        <option value="가등록"${e.reg_status !== '등록' ? ' selected' : ''}>가등록</option>
+        <option value="등록"${e.reg_status === '등록' ? ' selected' : ''}>완등록</option></select></td>
+      <td><input data-note="${e.id}" value="${esc(e.note || '')}" placeholder="예: 부분참, 화수참여" style="min-width:150px;padding:6px 8px"></td>
+    </tr>`).join('')}</table>
+    <p class="hint">등록 상태는 고르는 즉시, 비고는 입력 후 다른 곳을 누르면 저장돼요.</p>`
+    : `<p class="empty">${q ? '검색 결과가 없어요.' : '아직 이 지구에서 신청한 학생이 없어요.'}</p>`;
+}
+async function patchEnroll(id, patch, el){
+  el.disabled = true;
+  const { data, error } = await sb.rpc('staff_update_enrollment', { p_id: id, p_reg_status: patch.reg_status ?? null, p_note: patch.note ?? null });
+  el.disabled = false;
+  if (error || !data?.ok) { toast('저장 실패: ' + (error?.message || data?.message || '')); return; }
+  const e = enrolls.find(x => x.id === id); Object.assign(e, patch);
+  toast('저장했어요.');
+  if ('reg_status' in patch) { renderDistrict(); renderEnrolls(); }
+}
+$('#dList').addEventListener('change', e => {
+  const reg = e.target.dataset.reg, note = e.target.dataset.note;
+  if (reg) patchEnroll(reg, { reg_status: e.target.value }, e.target);
+  if (note) patchEnroll(note, { note: e.target.value.trim().slice(0, 100) }, e.target);
+});
 
 boot();
 </script>
