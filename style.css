@@ -125,3 +125,7 @@ th{color:var(--muted);font-weight:600;font-size:12px}
 .modal .card{width:100%;max-width:640px;margin:0}
 .modal .head{display:flex;justify-content:space-between;align-items:center;margin:0 0 14px}
 .modal .head h2{margin:0}
+#enList details > summary::-webkit-details-marker{display:none}
+#enList details > summary{color:inherit}
+#dList th,#dList td,#enList th,#enList td{white-space:nowrap}
+#dList td select,#dList td input{font-size:14px}
