@@ -66,6 +66,7 @@ alter table public.enrollments add column if not exists grade           text not
 alter table public.enrollments add column if not exists soon_role       text not null default '';  -- 순장 / 순원 / 해당 없음
 alter table public.enrollments add column if not exists follow_district text not null default '';  -- '그외'일 때 함께 참여하는 지구
 alter table public.enrollments add column if not exists church          text not null default '';  -- '그외'일 때 출석 교회
+alter table public.enrollments add column if not exists attendance      text not null default '';  -- 전참 / 부분참 (간사 입력)
 -- 예전 규칙(시간대별 1개) → 새 규칙(1인 1특강)으로 바꾸기
 alter table public.enrollments drop constraint if exists enrollments_slot_student_name_student_phone_key;
 do $$ begin
@@ -92,6 +93,8 @@ create table if not exists public.students (
   updated_at      timestamptz not null default now(),
   unique (name, phone)
 );
+alter table public.students add column if not exists attendance text not null default '';  -- 전참 / 부분참 (간사 입력)
+
 -- 예전 버전에서 신청만 있던 학생들을 명단으로 옮기기
 insert into public.students (name, phone, reg_status, district, campus, grade, soon_role, follow_district, church, note)
 select student_name, student_phone, reg_status, district, campus, grade, soon_role, follow_district, church, note
@@ -181,7 +184,8 @@ end;
 $$;
 
 -- 간사: 학생 명단의 등록 상태·비고 수정
-create or replace function public.staff_update_student(p_id uuid, p_reg_status text, p_note text)
+drop function if exists public.staff_update_student(uuid, text, text);
+create or replace function public.staff_update_student(p_id uuid, p_reg_status text, p_note text, p_attendance text default null)
 returns json language plpgsql security definer set search_path = public as $$
 declare st students;
 begin
@@ -189,11 +193,14 @@ begin
   if p_reg_status is not null and p_reg_status not in ('가등록', '등록') then
     return json_build_object('ok', false, 'message', '등록 상태가 올바르지 않아요.');
   end if;
-  update students set reg_status = coalesce(p_reg_status, reg_status),
+  if p_attendance is not null and p_attendance not in ('', '전참', '부분참') then
+    return json_build_object('ok', false, 'message', '참석 형태가 올바르지 않아요.');
+  end if;
+  update students set attendance = coalesce(p_attendance, attendance), reg_status = coalesce(p_reg_status, reg_status),
                       note = coalesce(left(btrim(p_note), 100), note), updated_at = now()
    where id = p_id returning * into st;
   if not found then return json_build_object('ok', false, 'message', '학생을 찾을 수 없어요.'); end if;
-  update enrollments set reg_status = st.reg_status, note = st.note
+  update enrollments set reg_status = st.reg_status, note = st.note, attendance = st.attendance
    where student_name = st.name and student_phone = st.phone;
   return json_build_object('ok', true);
 end;
@@ -430,7 +437,7 @@ revoke all on function public.cancel_enrollment(uuid, text, text) from public;
 revoke all on function public.my_admin() from public;
 revoke all on function public.set_my_district(text) from public;
 revoke all on function public.staff_update_enrollment(uuid, text, text) from public;
-revoke all on function public.staff_update_student(uuid, text, text) from public;
+revoke all on function public.staff_update_student(uuid, text, text, text) from public;
 grant execute on function public.get_state() to anon, authenticated;
 grant execute on function public.save_student(text, text, text, text, text, text, text, text, text, text, boolean) to anon, authenticated;
 grant execute on function public.student_login(text, text, text) to anon, authenticated;
@@ -442,7 +449,7 @@ grant execute on function public.is_owner() to authenticated;
 grant execute on function public.my_admin() to authenticated;
 grant execute on function public.set_my_district(text) to authenticated;
 grant execute on function public.staff_update_enrollment(uuid, text, text) to authenticated;
-grant execute on function public.staff_update_student(uuid, text, text) to authenticated;
+grant execute on function public.staff_update_student(uuid, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------
 -- 관리자 등록 — 아래 이메일을 본인 것으로 바꾸고 실행
