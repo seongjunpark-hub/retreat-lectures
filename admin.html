@@ -18,11 +18,13 @@
 <main id="loginBox" class="wrap hidden">
   <div class="narrow">
     <div class="card">
-      <h2>관리자 로그인</h2>
-      <p class="hint" style="margin:-6px 0 18px">Supabase에 등록한 관리자 이메일과 비밀번호로 로그인하세요.</p>
+      <h2 id="loginTitle">관리자 로그인</h2>
+      <p class="hint" id="loginHint" style="margin:-6px 0 18px">관리자로 등록된 이메일과 비밀번호로 로그인하세요.</p>
       <div class="field"><label for="email">이메일</label><input id="email" type="email" autocomplete="username"></div>
       <div class="field"><label for="pw">비밀번호</label><input id="pw" type="password" autocomplete="current-password"></div>
+      <div class="field hidden" id="pw2Wrap"><label for="pw2">비밀번호 확인</label><input id="pw2" type="password" autocomplete="new-password"></div>
       <button class="big" id="loginBtn">로그인</button>
+      <p style="text-align:center;margin:16px 0 0;font-size:14px"><a href="#" id="toggleMode">처음이에요? 계정 만들기</a></p>
     </div>
     <a class="foot-link" href="./">← 학생 신청 화면으로</a>
   </div>
@@ -33,6 +35,7 @@
     <button data-tab="lectures" class="on">특강 관리</button>
     <button data-tab="enrolls">신청 현황</button>
     <button data-tab="settings">신청 설정</button>
+    <button data-tab="admins">관리자</button>
   </div>
 
   <!-- 특강 관리 -->
@@ -69,6 +72,16 @@
     </div>
     <a class="foot-link" href="./" target="_blank">학생 화면 새 창으로 보기 ↗</a>
   </section>
+
+  <!-- 관리자 -->
+  <section data-pane="admins" class="hidden">
+    <div class="card">
+      <h2>관리자 추가</h2>
+      <div style="display:flex;gap:8px"><input id="newAdmin" type="email" placeholder="간사님 이메일"><button id="addAdmin" style="white-space:nowrap">추가</button></div>
+      <p class="hint">추가한 뒤 그 간사님께 알려 주세요: 관리자 화면 → <b>처음이에요? 계정 만들기</b> → 같은 이메일로 비밀번호 정하기</p>
+    </div>
+    <div class="card"><h2>관리자 목록</h2><div id="adminList"></div></div>
+  </section>
 </main>
 
 <!-- 특강 등록/수정 창 -->
@@ -97,7 +110,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let toastTimer;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000); }
-let lectures = [], enrolls = [], editingId = null;
+let lectures = [], enrolls = [], editingId = null, myEmail = '';
 
 // ---------- 로그인 ----------
 function showLogin(){ $('#loginBox').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#who').classList.add('hidden'); }
@@ -107,15 +120,38 @@ async function boot(){
   const { data: ok } = await sb.rpc('is_admin');
   if (!ok) { toast('관리자로 등록되지 않은 계정이에요.'); await sb.auth.signOut(); showLogin(); return; }
   $('#loginBox').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#who').classList.remove('hidden');
-  $('#whoEmail').textContent = session.user.email;
+  $('#whoEmail').textContent = session.user.email; myEmail = session.user.email.toLowerCase();
   await loadLectures();
   await Promise.all([loadSettings(), loadEnrolls()]);
 }
+let signupMode = false;
+$('#toggleMode').onclick = e => {
+  e.preventDefault(); signupMode = !signupMode;
+  $('#loginTitle').textContent = signupMode ? '관리자 계정 만들기' : '관리자 로그인';
+  $('#loginHint').textContent = signupMode ? '관리자로 추가된 이메일로 비밀번호를 정하세요. (8자 이상)' : '관리자로 등록된 이메일과 비밀번호로 로그인하세요.';
+  $('#pw2Wrap').classList.toggle('hidden', !signupMode);
+  $('#loginBtn').textContent = signupMode ? '계정 만들기' : '로그인';
+  $('#toggleMode').textContent = signupMode ? '이미 계정이 있어요 → 로그인' : '처음이에요? 계정 만들기';
+};
 $('#loginBtn').onclick = async () => {
-  const btn = $('#loginBtn'); btn.disabled = true; btn.textContent = '로그인 중…';
-  const { error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#pw').value });
-  btn.disabled = false; btn.textContent = '로그인';
-  if (error) { toast('로그인 실패: 이메일/비밀번호를 확인하세요.'); return; }
+  const email = $('#email').value.trim(), pw = $('#pw').value, btn = $('#loginBtn'), label = btn.textContent;
+  if (!email || !pw) { toast('이메일과 비밀번호를 입력해 주세요.'); return; }
+  if (signupMode) {
+    if (pw.length < 8) { toast('비밀번호는 8자 이상으로 해 주세요.'); return; }
+    if (pw !== $('#pw2').value) { toast('비밀번호 확인이 맞지 않아요.'); return; }
+  }
+  btn.disabled = true; btn.textContent = '처리 중…';
+  const { data, error } = signupMode
+    ? await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin + location.pathname } })
+    : await sb.auth.signInWithPassword({ email, password: pw });
+  btn.disabled = false; btn.textContent = label;
+  if (error) {
+    const m = error.message || '';
+    toast(signupMode ? (/registered|exists/i.test(m) ? '이미 계정이 있어요. 로그인해 주세요.' : '계정 만들기 실패: ' + m)
+                     : (/confirm/i.test(m) ? '이메일 인증이 아직 안 됐어요. 메일함을 확인해 주세요.' : '로그인 실패: 이메일/비밀번호를 확인하세요.'));
+    return;
+  }
+  if (signupMode && !data.session) { toast('인증 메일을 보냈어요. 메일의 링크를 누른 뒤 로그인해 주세요.'); $('#toggleMode').click(); return; }
   boot();
 };
 $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
@@ -126,6 +162,7 @@ $$('.tabs button[data-tab]').forEach(b => b.onclick = () => {
   $$('.tabs button[data-tab]').forEach(x => x.classList.toggle('on', x === b));
   $$('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== b.dataset.tab));
   if (b.dataset.tab === 'enrolls') loadEnrolls();
+  if (b.dataset.tab === 'admins') loadAdmins();
 });
 
 // ---------- 특강 ----------
@@ -261,6 +298,29 @@ $('#saveSet').onclick = async () => {
   if (row.open_at && row.close_at && row.close_at <= row.open_at) { toast('마감 시각이 시작보다 늦어야 해요.'); return; }
   const { error } = await sb.from('settings').update(row).eq('id', 1);
   toast(error ? '저장 실패: ' + error.message : '저장했어요.');
+};
+
+// ---------- 관리자 ----------
+async function loadAdmins(){
+  const { data, error } = await sb.from('admins').select('email').order('email');
+  if (error) { $('#adminList').innerHTML = '<p class="hint">목록을 불러오지 못했어요. schema.sql 최신본을 SQL Editor에서 한 번 더 Run 해 주세요.</p>'; return; }
+  $('#adminList').innerHTML = data.map(a => `<div class="row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)">
+    <span>${esc(a.email)}${a.email.toLowerCase() === myEmail ? ' <small style="color:var(--muted)">(나)</small>' : ''}</span>
+    ${a.email.toLowerCase() === myEmail ? '' : `<button class="danger small" data-rmadmin="${esc(a.email)}">삭제</button>`}</div>`).join('');
+}
+$('#addAdmin').onclick = async () => {
+  const email = $('#newAdmin').value.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('이메일을 정확히 입력해 주세요.'); return; }
+  const { error } = await sb.from('admins').insert({ email });
+  if (error) { toast(/duplicate/i.test(error.message) ? '이미 관리자예요.' : '추가 실패: ' + error.message); return; }
+  $('#newAdmin').value = ''; toast('추가했어요. 간사님께 계정 만들기를 안내해 주세요.'); loadAdmins();
+};
+$('#newAdmin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#addAdmin').click(); });
+$('#adminList').onclick = async e => {
+  const email = e.target.closest('[data-rmadmin]')?.dataset.rmadmin;
+  if (!email || !confirm(email + ' 님을 관리자에서 뺄까요?')) return;
+  const { error } = await sb.from('admins').delete().eq('email', email);
+  if (error) toast('삭제 실패'); else loadAdmins();
 };
 
 boot();

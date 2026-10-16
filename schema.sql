@@ -84,7 +84,9 @@ drop policy if exists admin_all on public.enrollments;
 create policy admin_all on public.settings    for all to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy admin_all on public.lectures    for all to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy admin_all on public.enrollments for all to authenticated using (public.is_admin()) with check (public.is_admin());
--- admins 테이블은 정책 없음 → API로 읽기/쓰기 불가 (SQL Editor에서만 관리)
+-- admins: 관리자만 목록 보기/추가/삭제 (관리자 화면의 [관리자] 탭)
+drop policy if exists admin_manage on public.admins;
+create policy admin_manage on public.admins for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ---------------------------------------------------------
 -- 학생용 함수
