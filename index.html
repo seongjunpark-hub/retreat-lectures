@@ -10,48 +10,55 @@
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <p class="eyebrow">선택특강 수강신청</p>
-  <h1 id="eventTitle">불러오는 중…</h1>
-  <p id="notice" class="notice"></p>
+  <div>
+    <p class="eyebrow">선택특강 수강신청</p>
+    <h1 id="eventTitle">불러오는 중…</h1>
+    <p id="notice" class="notice"></p>
+  </div>
+  <div class="who hidden" id="who">
+    <b id="whoName"></b> 님<br><span id="whoMeta"></span><br>
+    <button id="editInfo">정보 변경</button>
+  </div>
 </div></header>
 
-<main class="wrap">
-  <section id="statusBox" class="card status">
-    <p class="sub" id="statusLabel">상태 확인 중…</p>
-    <p class="big" id="statusBig">&nbsp;</p>
-    <p class="sub" id="statusSub"></p>
-  </section>
-
-  <section class="card">
-    <h2>내 정보</h2>
-    <div class="grid">
-      <div><label for="name">이름</label><input id="name" autocomplete="name" maxlength="30"></div>
-      <div><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="01012345678" maxlength="13"></div>
-      <div class="full"><label>수련회 등록 상태</label>
-        <div class="seg" id="regSeg">
-          <button type="button" data-v="가등록">가등록</button>
-          <button type="button" data-v="등록">등록</button>
-        </div>
-        <input type="hidden" id="reg">
+<!-- ① 입장 화면 -->
+<main id="entry" class="wrap hidden">
+  <div class="narrow">
+    <div class="card">
+      <h2>입장하기</h2>
+      <p class="hint" style="margin:-6px 0 18px">신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.</p>
+      <div class="field"><label for="name">이름</label><input id="name" autocomplete="name" maxlength="30"></div>
+      <div class="field"><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="01012345678" maxlength="13"></div>
+      <div class="field"><label>수련회 등록 상태</label>
+        <div class="seg" id="regSeg"><button type="button" data-v="가등록">가등록</button><button type="button" data-v="등록">등록</button></div>
       </div>
-      <div><label for="district">출신 지구</label>
+      <div class="field"><label for="district">출신 지구</label>
         <select id="district">
           <option value="">선택하세요</option>
           <option>안동</option><option>영주</option><option>경주</option>
           <option>김천구미</option><option>포항</option><option value="그외">그 외</option>
-        </select></div>
-      <div id="districtEtcWrap" class="hidden"><label for="districtEtc">지구 이름</label><input id="districtEtc" maxlength="20" placeholder="예: 대구"></div>
-      <div id="codeWrap" class="hidden"><label for="code">입장 코드</label><input id="code" maxlength="20"></div>
+        </select>
+      </div>
+      <div class="field hidden" id="districtEtcWrap"><label for="districtEtc">지구 이름</label><input id="districtEtc" maxlength="20" placeholder="예: 대구"></div>
+      <div class="field hidden" id="codeWrap"><label for="code">입장 코드</label><input id="code" maxlength="20" placeholder="현장에서 안내받은 코드"></div>
+      <button class="big" id="enterBtn">입장하기</button>
     </div>
-    <p class="hint">신청 시작 전에 미리 입력해 두세요. 이름+번호로 내 신청을 확인·취소할 수 있어요.</p>
+    <a class="foot-link" href="admin.html">간사·관리자 로그인 →</a>
+  </div>
+</main>
+
+<!-- ② 특강 목록 화면 -->
+<main id="board" class="wrap hidden">
+  <section class="status" id="statusBox">
+    <div><p class="label" id="statusLabel"></p><p class="big" id="statusBig">&nbsp;</p></div>
+    <p class="sub" id="statusSub"></p>
   </section>
 
-  <div id="lectures"></div>
+  <section class="card mine none" id="mineBox"></section>
 
-  <section class="card" style="margin-top:22px">
-    <div class="row"><h2 style="margin:0">내 신청 내역</h2><button class="ghost" id="checkMine">조회</button></div>
-    <div id="mine" style="margin-top:10px"></div>
-  </section>
+  <div class="list-head"><h2>특강 목록</h2><span id="listInfo"></span></div>
+  <div class="lec-grid" id="lectures"></div>
+  <a class="foot-link" href="admin.html">간사·관리자 로그인 →</a>
 </main>
 <div id="toast"></div>
 
@@ -60,40 +67,57 @@ const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let state = null, offset = 0, lastPhase = null, myIds = new Set(), pending = new Set();
-
-// 입력값 기억 (이 기기에서만)
-const FIELDS = ['name','phone','reg','district','districtEtc','code'];
-const save = f => { try { localStorage.setItem('rl_' + f, $('#' + f).value); } catch (e) {} };
-FIELDS.forEach(f => {
-  try { const v = localStorage.getItem('rl_' + f); if (v) $('#' + f).value = v; } catch (e) {}
-  $('#' + f).addEventListener('input', () => save(f));
-  $('#' + f).addEventListener('change', () => save(f));
-});
-function syncForm(){
-  $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === $('#reg').value));
-  $('#districtEtcWrap').classList.toggle('hidden', $('#district').value !== '그외');
-}
-$('#regSeg').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  $('#reg').value = b.dataset.v; save('reg'); syncForm();
-});
-$('#district').addEventListener('change', () => { syncForm(); if ($('#district').value === '그외') $('#districtEtc').focus(); });
-syncForm();
-const me = () => {
-  const d = $('#district').value, etc = $('#districtEtc').value.trim();
-  return {
-    name: $('#name').value.trim(),
-    phone: $('#phone').value.replace(/\D/g, ''),
-    reg: $('#reg').value,
-    district: d === '그외' ? (etc ? '그외(' + etc + ')' : '') : d,
-    code: $('#code').value.trim()
-  };
-};
+let state = null, offset = 0, lastPhase = null, mine = [], pending = null, profile = null;
 
 let toastTimer;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200); }
 
+// ---------- 내 정보 (이 기기에 저장) ----------
+const KEY = 'rl_profile_v2';
+function loadProfile(){ try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
+function saveProfile(p){ try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {} }
+let reg = '';
+function syncSeg(){ $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === reg)); }
+$('#regSeg').onclick = e => { const b = e.target.closest('button'); if (b) { reg = b.dataset.v; syncSeg(); } };
+$('#district').onchange = () => { const etc = $('#district').value === '그외'; $('#districtEtcWrap').classList.toggle('hidden', !etc); if (etc) $('#districtEtc').focus(); };
+
+function fillForm(p){
+  if (!p) return;
+  $('#name').value = p.name || ''; $('#phone').value = p.phone || ''; reg = p.reg || ''; syncSeg();
+  const d = p.district || '';
+  if (d.startsWith('그외')) { $('#district').value = '그외'; $('#districtEtc').value = d.replace(/^그외\(|\)$/g, ''); }
+  else $('#district').value = d;
+  $('#district').onchange(); $('#code').value = p.code || '';
+}
+$('#enterBtn').onclick = () => {
+  const name = $('#name').value.trim(), phone = $('#phone').value.replace(/\D/g, '');
+  const d = $('#district').value, etc = $('#districtEtc').value.trim();
+  const district = d === '그외' ? (etc ? '그외(' + etc + ')' : '') : d;
+  const code = $('#code').value.trim();
+  if (!name) { toast('이름을 입력해 주세요.'); $('#name').focus(); return; }
+  if (phone.length < 10 || phone.length > 11) { toast('휴대폰 번호를 정확히 입력해 주세요.'); $('#phone').focus(); return; }
+  if (!reg) { toast('가등록/등록 중 하나를 선택해 주세요.'); return; }
+  if (!district) { toast(d === '그외' ? '지구 이름을 입력해 주세요.' : '출신 지구를 선택해 주세요.'); return; }
+  if (state?.settings.needs_code && !code) { toast('입장 코드를 입력해 주세요.'); $('#code').focus(); return; }
+  profile = { name, phone, reg, district, code };
+  saveProfile(profile); showBoard();
+};
+$('#editInfo').onclick = () => { fillForm(profile); showEntry(); };
+
+function showEntry(){
+  $('#entry').classList.remove('hidden'); $('#board').classList.add('hidden'); $('#who').classList.add('hidden');
+  window.scrollTo(0, 0);
+}
+function showBoard(){
+  $('#entry').classList.add('hidden'); $('#board').classList.remove('hidden'); $('#who').classList.remove('hidden');
+  $('#whoName').textContent = profile.name;
+  $('#whoMeta').textContent = profile.district.replace(/^그외\((.*)\)$/, '$1') + ' · ' + profile.reg;
+  window.scrollTo(0, 0);
+  loadMine();
+  if (state) renderBoard();
+}
+
+// ---------- 서버 시간 / 상태 ----------
 const serverNow = () => Date.now() + offset;
 function phase(){
   if (!state) return 'loading';
@@ -114,16 +138,27 @@ function hms(ms){
 async function load(){
   const t0 = Date.now();
   const { data, error } = await sb.rpc('get_state');
-  if (error) { $('#statusLabel').textContent = '서버 연결에 실패했어요. 잠시 후 새로고침해 주세요.'; return; }
+  if (error) { $('#eventTitle').textContent = '서버 연결에 실패했어요'; toast('잠시 후 새로고침해 주세요.'); return; }
   const rtt = Date.now() - t0;
   offset = new Date(data.now).getTime() - (Date.now() - rtt / 2);
-  state = data;
-  render();
+  const first = !state; state = data;
+  const s = state.settings;
+  $('#eventTitle').textContent = s.event_title; document.title = s.event_title + ' 수강신청';
+  $('#notice').textContent = s.notice || '';
+  $('#codeWrap').classList.toggle('hidden', !s.needs_code);
+  if (first) {
+    profile = loadProfile();
+    if (profile && profile.name && profile.reg && profile.district && (!s.needs_code || profile.code)) showBoard();
+    else { fillForm(profile); showEntry(); }
+  }
+  lastPhase = phase();
+  renderBoard();
 }
 
 function renderStatus(){
   const p = phase(), s = state?.settings, box = $('#statusBox');
-  box.className = 'card status' + (p === 'open' ? ' open' : p === 'closed' ? ' closed' : '');
+  if (!s) return;
+  box.className = 'status' + (p === 'open' ? ' open' : p === 'closed' ? ' closed' : '');
   if (p === 'before') {
     $('#statusLabel').textContent = '신청 시작까지';
     $('#statusBig').textContent = hms(new Date(s.open_at).getTime() - serverNow());
@@ -136,95 +171,96 @@ function renderStatus(){
     $('#statusLabel').textContent = '';
     $('#statusBig').textContent = '신청 마감';
     $('#statusSub').textContent = '변경이 필요하면 담당 간사에게 문의하세요.';
-  } else if (p === 'unset') {
+  } else {
     $('#statusLabel').textContent = '';
     $('#statusBig').textContent = '오픈 시간 미정';
     $('#statusSub').textContent = '특강 목록은 미리 둘러볼 수 있어요.';
   }
-  if (p !== lastPhase) { const changed = lastPhase !== null; lastPhase = p; renderLectures(); if (changed) load(); }
+  if (p !== lastPhase) { lastPhase = p; load(); }
+}
+
+function renderMine(){
+  const box = $('#mineBox'), m = mine[0];
+  if (!m) {
+    box.className = 'card mine none';
+    box.innerHTML = `<div><p class="tag">내 신청</p><p class="title" style="font-size:16px;font-weight:600">아직 신청한 특강이 없어요</p>
+      <p class="meta">특강은 1인 1개만 신청할 수 있어요.</p></div>`;
+    return;
+  }
+  box.className = 'card mine';
+  box.innerHTML = `<div><p class="tag">✓ 내가 신청한 특강</p><p class="title">${esc(m.title)}</p>
+    <p class="meta">${esc(m.speaker_name)}${m.location ? ' · ' + esc(m.location) : ''}</p></div>
+    <button class="danger" id="cancelBtn">신청 취소</button>`;
+  $('#cancelBtn').onclick = cancelMine;
 }
 
 function renderLectures(){
-  const p = phase(), list = state.lectures;
-  if (!list.length) { $('#lectures').innerHTML = '<div class="card empty">아직 등록된 특강이 없어요.</div>'; return; }
-  const hasMine = myIds.size > 0;
-  $('#lectures').innerHTML = `<p class="slot-title">특강은 1인 1개만 신청할 수 있어요</p>` + list.map(l => {
-      const full = l.enrolled >= l.capacity, mine = myIds.has(l.id), busy = pending.has(l.id);
-      const pct = Math.min(100, Math.round(l.enrolled / l.capacity * 100));
-      let label = '신청', dis = false, cls = '';
-      if (mine) { label = '신청 완료 ✓'; dis = true; cls = 'done'; }
-      else if (hasMine) { label = '신청 불가'; dis = true; }
-      else if (busy) { label = '신청 중…'; dis = true; }
-      else if (p === 'before' || p === 'unset') { label = '오픈 전'; dis = true; }
-      else if (p === 'closed') { label = '마감'; dis = true; }
-      else if (full) { label = '정원 마감'; dis = true; }
-      return `<article class="lec${full && !mine ? ' full' : ''}">
-        <h3>${esc(l.title)}</h3>
-        <p class="speaker">${esc(l.speaker_name)}${l.location ? ' · ' + esc(l.location) : ''}</p>
-        ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
-        ${l.speaker_bio ? `<details><summary>강사 소개</summary><p>${esc(l.speaker_bio)}</p></details>` : ''}
+  const p = phase(), list = state.lectures, myId = mine[0]?.lecture_id;
+  const left = list.reduce((a, l) => a + Math.max(0, l.capacity - l.enrolled), 0);
+  $('#listInfo').textContent = list.length ? `${list.length}개 · 남은 자리 ${left}` : '';
+  if (!list.length) { $('#lectures').innerHTML = '<div class="card empty" style="grid-column:1/-1">아직 등록된 특강이 없어요.</div>'; return; }
+  $('#lectures').innerHTML = list.map((l, i) => {
+    const full = l.enrolled >= l.capacity, isMine = l.id === myId, remain = Math.max(0, l.capacity - l.enrolled);
+    const pct = Math.min(100, Math.round(l.enrolled / l.capacity * 100));
+    let label = '이 특강 신청하기', dis = false, cls = '';
+    if (isMine) { label = '✓ 신청 완료'; dis = true; cls = 'done'; }
+    else if (pending === l.id) { label = '신청 중…'; dis = true; }
+    else if (myId) { label = '다른 특강 신청함'; dis = true; }
+    else if (p === 'before' || p === 'unset') { label = '오픈 전'; dis = true; }
+    else if (p === 'closed') { label = '신청 마감'; dis = true; }
+    else if (full) { label = '정원 마감'; dis = true; }
+    return `<article class="lec${isMine ? ' is-mine' : ''}${full && !isMine ? ' is-full' : ''}">
+      <p class="num">특강 ${i + 1}</p>
+      <h3>${esc(l.title)}</h3>
+      <p class="speaker">강사 <b>${esc(l.speaker_name)}</b></p>
+      ${l.location ? `<p class="loc">📍 ${esc(l.location)}</p>` : ''}
+      ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
+      ${l.speaker_bio ? `<details><summary>강사 약력 보기</summary><p>${esc(l.speaker_bio)}</p></details>` : ''}
+      <div class="bottom">
+        <div class="seats"><span class="left">${full ? '마감' : '남은 자리 ' + remain}</span><span>${l.enrolled} / ${l.capacity}명</span></div>
         <div class="meter"><div style="width:${pct}%"></div></div>
-        <div class="row"><span class="count"><b>${l.enrolled}</b> / ${l.capacity}명</span>
-          <button class="${cls}" data-id="${l.id}" ${dis ? 'disabled' : ''}>${label}</button></div>
-      </article>`;
+        <button class="${cls}" data-id="${l.id}" ${dis ? 'disabled' : ''}>${label}</button>
+      </div>
+    </article>`;
   }).join('');
 }
+function renderBoard(){ if (!state || !profile) return; renderStatus(); renderMine(); renderLectures(); }
 
-function render(){
-  const s = state.settings;
-  $('#eventTitle').textContent = s.event_title;
-  document.title = s.event_title + ' 수강신청';
-  $('#notice').textContent = s.notice || '';
-  $('#codeWrap').classList.toggle('hidden', !s.needs_code);
-  lastPhase = phase();
-  renderStatus();
-  renderLectures();
-}
-
+// ---------- 신청 / 조회 / 취소 ----------
 $('#lectures').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-id]');
-  if (!btn || btn.disabled) return;
-  const m = me();
-  if (!m.name) { toast('이름을 입력해 주세요.'); $('#name').focus(); return; }
-  if (m.phone.length < 10) { toast('휴대폰 번호를 정확히 입력해 주세요.'); $('#phone').focus(); return; }
-  if (!m.reg) { toast('가등록/등록 여부를 선택해 주세요.'); $('#regSeg').scrollIntoView({block:'center'}); return; }
-  if (!m.district) { toast($('#district').value === '그외' ? '지구 이름을 입력해 주세요.' : '출신 지구를 선택해 주세요.'); ($('#district').value === '그외' ? $('#districtEtc') : $('#district')).focus(); return; }
-  if (state.settings.needs_code && !m.code) { toast('입장 코드를 입력해 주세요.'); $('#code').focus(); return; }
-  const id = btn.dataset.id;
-  pending.add(id); renderLectures();
-  const { data, error } = await sb.rpc('enroll', { p_lecture_id: id, p_name: m.name, p_phone: m.phone, p_reg_status: m.reg, p_district: m.district, p_code: m.code });
-  pending.delete(id);
+  if (!btn || btn.disabled || pending) return;
+  const l = state.lectures.find(x => x.id === btn.dataset.id);
+  pending = l.id; renderLectures();
+  const { data, error } = await sb.rpc('enroll', { p_lecture_id: l.id, p_name: profile.name, p_phone: profile.phone,
+    p_reg_status: profile.reg, p_district: profile.district, p_code: profile.code || '' });
+  pending = null;
   if (error) toast('네트워크 오류예요. 다시 눌러 주세요.');
-  else { toast(data.message); if (data.ok) { myIds.add(id); showMine(true); } }
-  await load();
+  else {
+    toast(data.message);
+    if (data.code === 'bad_code') { fillForm(profile); showEntry(); $('#code').focus(); }
+  }
+  await loadMine(); await load();
+  if (data?.ok) window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-async function showMine(silent){
-  const m = me();
-  if (!m.name || m.phone.length < 10) { if (!silent) toast('이름과 번호를 먼저 입력해 주세요.'); return; }
-  const { data, error } = await sb.rpc('my_enrollments', { p_name: m.name, p_phone: m.phone });
-  if (error) { toast('조회에 실패했어요.'); return; }
-  myIds = new Set(data.map(d => d.lecture_id));
-  $('#mine').innerHTML = data.length ? data.map(d => `
-    <div class="mine-item"><div><b>${esc(d.title)}</b><small>${esc(d.speaker_name)}${d.location ? ' · ' + esc(d.location) : ''}</small></div>
-    <button class="danger" data-cancel="${d.lecture_id}">취소</button></div>`).join('')
-    : '<p class="empty">신청 내역이 없어요.</p>';
-  if (state) renderLectures();
+async function loadMine(){
+  if (!profile) return;
+  const { data, error } = await sb.rpc('my_enrollments', { p_name: profile.name, p_phone: profile.phone });
+  if (!error) { mine = data; if (state) renderBoard(); }
 }
-$('#checkMine').addEventListener('click', () => showMine(false));
-$('#mine').addEventListener('click', async e => {
-  const id = e.target.closest('button[data-cancel]')?.dataset.cancel;
-  if (!id || !confirm('정말 취소할까요? 빈자리는 바로 다른 사람이 신청할 수 있고, 취소 후 다른 특강을 신청할 수 있어요.')) return;
-  const m = me();
-  const { data, error } = await sb.rpc('cancel_enrollment', { p_lecture_id: id, p_name: m.name, p_phone: m.phone });
+async function cancelMine(){
+  const m = mine[0];
+  if (!m || !confirm(`「${m.title}」 신청을 취소할까요?\n빈자리는 바로 다른 사람이 신청할 수 있어요.`)) return;
+  const { data, error } = await sb.rpc('cancel_enrollment', { p_lecture_id: m.lecture_id, p_name: profile.name, p_phone: profile.phone });
   toast(error ? '취소에 실패했어요.' : data.message);
-  await showMine(true); await load();
-});
+  await loadMine(); await load();
+}
 
 // 주기적 새로고침: 신청 중엔 자주, 아닐 땐 드물게
 async function loop(){ await load(); setTimeout(loop, phase() === 'open' ? 5000 : 20000); }
-setInterval(() => { if (state) renderStatus(); }, 250);
-loop().then(() => showMine(true));
+setInterval(() => { if (state && profile && !$('#board').classList.contains('hidden')) renderStatus(); }, 250);
+loop();
 </script>
 </body>
 </html>
