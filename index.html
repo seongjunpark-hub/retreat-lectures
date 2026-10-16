@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>선택특강 수강신청</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <p class="eyebrow">선택특강 수강신청</p>
+  <h1 id="eventTitle">불러오는 중…</h1>
+  <p id="notice" class="notice"></p>
+</div></header>
+
+<main class="wrap">
+  <section id="statusBox" class="card status">
+    <p class="sub" id="statusLabel">상태 확인 중…</p>
+    <p class="big" id="statusBig">&nbsp;</p>
+    <p class="sub" id="statusSub"></p>
+  </section>
+
+  <section class="card">
+    <h2>내 정보</h2>
+    <div class="grid">
+      <div><label for="name">이름</label><input id="name" autocomplete="name" maxlength="30"></div>
+      <div><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="01012345678" maxlength="13"></div>
+      <div class="full"><label>수련회 등록 상태</label>
+        <div class="seg" id="regSeg">
+          <button type="button" data-v="가등록">가등록</button>
+          <button type="button" data-v="등록">등록</button>
+        </div>
+        <input type="hidden" id="reg">
+      </div>
+      <div><label for="district">출신 지구</label>
+        <select id="district">
+          <option value="">선택하세요</option>
+          <option>안동</option><option>영주</option><option>경주</option>
+          <option>김천구미</option><option>포항</option><option value="그외">그 외</option>
+        </select></div>
+      <div id="districtEtcWrap" class="hidden"><label for="districtEtc">지구 이름</label><input id="districtEtc" maxlength="20" placeholder="예: 대구"></div>
+      <div id="codeWrap" class="hidden"><label for="code">입장 코드</label><input id="code" maxlength="20"></div>
+    </div>
+    <p class="hint">신청 시작 전에 미리 입력해 두세요. 이름+번호로 내 신청을 확인·취소할 수 있어요.</p>
+  </section>
+
+  <div id="lectures"></div>
+
+  <section class="card" style="margin-top:22px">
+    <div class="row"><h2 style="margin:0">내 신청 내역</h2><button class="ghost" id="checkMine">조회</button></div>
+    <div id="mine" style="margin-top:10px"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state = null, offset = 0, lastPhase = null, myIds = new Set(), pending = new Set();
+
+// 입력값 기억 (이 기기에서만)
+const FIELDS = ['name','phone','reg','district','districtEtc','code'];
+const save = f => { try { localStorage.setItem('rl_' + f, $('#' + f).value); } catch (e) {} };
+FIELDS.forEach(f => {
+  try { const v = localStorage.getItem('rl_' + f); if (v) $('#' + f).value = v; } catch (e) {}
+  $('#' + f).addEventListener('input', () => save(f));
+  $('#' + f).addEventListener('change', () => save(f));
+});
+function syncForm(){
+  $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === $('#reg').value));
+  $('#districtEtcWrap').classList.toggle('hidden', $('#district').value !== '그외');
+}
+$('#regSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  $('#reg').value = b.dataset.v; save('reg'); syncForm();
+});
+$('#district').addEventListener('change', () => { syncForm(); if ($('#district').value === '그외') $('#districtEtc').focus(); });
+syncForm();
+const me = () => {
+  const d = $('#district').value, etc = $('#districtEtc').value.trim();
+  return {
+    name: $('#name').value.trim(),
+    phone: $('#phone').value.replace(/\D/g, ''),
+    reg: $('#reg').value,
+    district: d === '그외' ? (etc ? '그외(' + etc + ')' : '') : d,
+    code: $('#code').value.trim()
+  };
+};
+
+let toastTimer;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200); }
+
+const serverNow = () => Date.now() + offset;
+function phase(){
+  if (!state) return 'loading';
+  const s = state.settings, n = serverNow();
+  if (!s.open_at) return 'unset';
+  if (n < new Date(s.open_at).getTime()) return 'before';
+  if (s.close_at && n > new Date(s.close_at).getTime()) return 'closed';
+  return 'open';
+}
+const fmt = iso => new Date(iso).toLocaleString('ko-KR', {month:'long', day:'numeric', weekday:'short', hour:'2-digit', minute:'2-digit'});
+function hms(ms){
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  const d = Math.floor(t / 86400), h = Math.floor(t % 86400 / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  const p = n => String(n).padStart(2, '0');
+  return (d ? d + '일 ' : '') + `${p(h)}:${p(m)}:${p(s)}`;
+}
+
+async function load(){
+  const t0 = Date.now();
+  const { data, error } = await sb.rpc('get_state');
+  if (error) { $('#statusLabel').textContent = '서버 연결에 실패했어요. 잠시 후 새로고침해 주세요.'; return; }
+  const rtt = Date.now() - t0;
+  offset = new Date(data.now).getTime() - (Date.now() - rtt / 2);
+  state = data;
+  render();
+}
+
+function renderStatus(){
+  const p = phase(), s = state?.settings, box = $('#statusBox');
+  box.className = 'card status' + (p === 'open' ? ' open' : p === 'closed' ? ' closed' : '');
+  if (p === 'before') {
+    $('#statusLabel').textContent = '신청 시작까지';
+    $('#statusBig').textContent = hms(new Date(s.open_at).getTime() - serverNow());
+    $('#statusSub').textContent = fmt(s.open_at) + ' 오픈 · 선착순';
+  } else if (p === 'open') {
+    $('#statusLabel').textContent = '지금 신청할 수 있어요';
+    $('#statusBig').textContent = '선착순 신청 중';
+    $('#statusSub').textContent = s.close_at ? fmt(s.close_at) + ' 마감' : '';
+  } else if (p === 'closed') {
+    $('#statusLabel').textContent = '';
+    $('#statusBig').textContent = '신청 마감';
+    $('#statusSub').textContent = '변경이 필요하면 담당 간사에게 문의하세요.';
+  } else if (p === 'unset') {
+    $('#statusLabel').textContent = '';
+    $('#statusBig').textContent = '오픈 시간 미정';
+    $('#statusSub').textContent = '특강 목록은 미리 둘러볼 수 있어요.';
+  }
+  if (p !== lastPhase) { const changed = lastPhase !== null; lastPhase = p; renderLectures(); if (changed) load(); }
+}
+
+function renderLectures(){
+  const p = phase(), list = state.lectures;
+  if (!list.length) { $('#lectures').innerHTML = '<div class="card empty">아직 등록된 특강이 없어요.</div>'; return; }
+  const hasMine = myIds.size > 0;
+  $('#lectures').innerHTML = `<p class="slot-title">특강은 1인 1개만 신청할 수 있어요</p>` + list.map(l => {
+      const full = l.enrolled >= l.capacity, mine = myIds.has(l.id), busy = pending.has(l.id);
+      const pct = Math.min(100, Math.round(l.enrolled / l.capacity * 100));
+      let label = '신청', dis = false, cls = '';
+      if (mine) { label = '신청 완료 ✓'; dis = true; cls = 'done'; }
+      else if (hasMine) { label = '신청 불가'; dis = true; }
+      else if (busy) { label = '신청 중…'; dis = true; }
+      else if (p === 'before' || p === 'unset') { label = '오픈 전'; dis = true; }
+      else if (p === 'closed') { label = '마감'; dis = true; }
+      else if (full) { label = '정원 마감'; dis = true; }
+      return `<article class="lec${full && !mine ? ' full' : ''}">
+        <h3>${esc(l.title)}</h3>
+        <p class="speaker">${esc(l.speaker_name)}${l.location ? ' · ' + esc(l.location) : ''}</p>
+        ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
+        ${l.speaker_bio ? `<details><summary>강사 소개</summary><p>${esc(l.speaker_bio)}</p></details>` : ''}
+        <div class="meter"><div style="width:${pct}%"></div></div>
+        <div class="row"><span class="count"><b>${l.enrolled}</b> / ${l.capacity}명</span>
+          <button class="${cls}" data-id="${l.id}" ${dis ? 'disabled' : ''}>${label}</button></div>
+      </article>`;
+  }).join('');
+}
+
+function render(){
+  const s = state.settings;
+  $('#eventTitle').textContent = s.event_title;
+  document.title = s.event_title + ' 수강신청';
+  $('#notice').textContent = s.notice || '';
+  $('#codeWrap').classList.toggle('hidden', !s.needs_code);
+  lastPhase = phase();
+  renderStatus();
+  renderLectures();
+}
+
+$('#lectures').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-id]');
+  if (!btn || btn.disabled) return;
+  const m = me();
+  if (!m.name) { toast('이름을 입력해 주세요.'); $('#name').focus(); return; }
+  if (m.phone.length < 10) { toast('휴대폰 번호를 정확히 입력해 주세요.'); $('#phone').focus(); return; }
+  if (!m.reg) { toast('가등록/등록 여부를 선택해 주세요.'); $('#regSeg').scrollIntoView({block:'center'}); return; }
+  if (!m.district) { toast($('#district').value === '그외' ? '지구 이름을 입력해 주세요.' : '출신 지구를 선택해 주세요.'); ($('#district').value === '그외' ? $('#districtEtc') : $('#district')).focus(); return; }
+  if (state.settings.needs_code && !m.code) { toast('입장 코드를 입력해 주세요.'); $('#code').focus(); return; }
+  const id = btn.dataset.id;
+  pending.add(id); renderLectures();
+  const { data, error } = await sb.rpc('enroll', { p_lecture_id: id, p_name: m.name, p_phone: m.phone, p_reg_status: m.reg, p_district: m.district, p_code: m.code });
+  pending.delete(id);
+  if (error) toast('네트워크 오류예요. 다시 눌러 주세요.');
+  else { toast(data.message); if (data.ok) { myIds.add(id); showMine(true); } }
+  await load();
+});
+
+async function showMine(silent){
+  const m = me();
+  if (!m.name || m.phone.length < 10) { if (!silent) toast('이름과 번호를 먼저 입력해 주세요.'); return; }
+  const { data, error } = await sb.rpc('my_enrollments', { p_name: m.name, p_phone: m.phone });
+  if (error) { toast('조회에 실패했어요.'); return; }
+  myIds = new Set(data.map(d => d.lecture_id));
+  $('#mine').innerHTML = data.length ? data.map(d => `
+    <div class="mine-item"><div><b>${esc(d.title)}</b><small>${esc(d.speaker_name)}${d.location ? ' · ' + esc(d.location) : ''}</small></div>
+    <button class="danger" data-cancel="${d.lecture_id}">취소</button></div>`).join('')
+    : '<p class="empty">신청 내역이 없어요.</p>';
+  if (state) renderLectures();
+}
+$('#checkMine').addEventListener('click', () => showMine(false));
+$('#mine').addEventListener('click', async e => {
+  const id = e.target.closest('button[data-cancel]')?.dataset.cancel;
+  if (!id || !confirm('정말 취소할까요? 빈자리는 바로 다른 사람이 신청할 수 있고, 취소 후 다른 특강을 신청할 수 있어요.')) return;
+  const m = me();
+  const { data, error } = await sb.rpc('cancel_enrollment', { p_lecture_id: id, p_name: m.name, p_phone: m.phone });
+  toast(error ? '취소에 실패했어요.' : data.message);
+  await showMine(true); await load();
+});
+
+// 주기적 새로고침: 신청 중엔 자주, 아닐 땐 드물게
+async function loop(){ await load(); setTimeout(loop, phase() === 'open' ? 5000 : 20000); }
+setInterval(() => { if (state) renderStatus(); }, 250);
+loop().then(() => showMine(true));
+</script>
+</body>
+</html>
