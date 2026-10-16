@@ -459,6 +459,76 @@ revoke execute on function public.is_owner() from anon;
 alter function public._student_json(public.students) set search_path = public;
 
 -- ---------------------------------------------------------
+-- 간사 가입 → 최고관리자 승인
+-- ---------------------------------------------------------
+create table if not exists public.admin_requests (
+  email      text primary key,
+  name       text not null default '',
+  district   text not null default '',
+  status     text not null default 'pending',   -- pending / approved / rejected
+  created_at timestamptz not null default now()
+);
+alter table public.admin_requests enable row level security;   -- 정책 없음: 아래 함수로만 접근
+
+create or replace function public.my_access_status()
+returns json language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'status', case
+      when exists (select 1 from admins where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))) then 'admin'
+      else coalesce((select status from admin_requests where email = lower(coalesce(auth.jwt() ->> 'email', ''))), 'none') end,
+    'request', (select json_build_object('name', name, 'district', district, 'created_at', created_at)
+                from admin_requests where email = lower(coalesce(auth.jwt() ->> 'email', ''))));
+$$;
+
+create or replace function public.request_admin_access(p_name text, p_district text)
+returns json language plpgsql security definer set search_path = public as $$
+declare v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+begin
+  if v_email = '' then return json_build_object('ok', false, 'message', '로그인이 필요해요.'); end if;
+  if exists (select 1 from admins where lower(email) = v_email) then
+    return json_build_object('ok', true, 'status', 'admin');
+  end if;
+  if btrim(coalesce(p_name, '')) = '' then return json_build_object('ok', false, 'message', '이름을 입력해 주세요.'); end if;
+  insert into admin_requests (email, name, district, status) values (v_email, left(btrim(p_name), 30), left(btrim(coalesce(p_district, '')), 40), 'pending')
+  on conflict (email) do update set name = excluded.name, district = excluded.district, status = 'pending', created_at = now();
+  return json_build_object('ok', true, 'status', 'pending');
+end;
+$$;
+
+create or replace function public.list_admin_requests()
+returns json language sql stable security definer set search_path = public as $$
+  select case when public.is_owner() then
+    coalesce((select json_agg(json_build_object('email', email, 'name', name, 'district', district, 'created_at', created_at) order by created_at)
+              from admin_requests where status = 'pending'), '[]'::json)
+  else '[]'::json end;
+$$;
+
+create or replace function public.decide_admin_request(p_email text, p_approve boolean, p_role text default 'staff')
+returns json language plpgsql security definer set search_path = public as $$
+declare r admin_requests;
+begin
+  if not public.is_owner() then return json_build_object('ok', false, 'message', '최고관리자만 할 수 있어요.'); end if;
+  select * into r from admin_requests where email = lower(p_email) and status = 'pending';
+  if not found then return json_build_object('ok', false, 'message', '요청을 찾을 수 없어요.'); end if;
+  if p_approve then
+    insert into admins (email, role, district) values (r.email, case when p_role = 'owner' then 'owner' else 'staff' end, r.district)
+    on conflict (email) do nothing;
+  end if;
+  update admin_requests set status = case when p_approve then 'approved' else 'rejected' end where email = r.email;
+  return json_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.my_access_status() from public, anon;
+revoke all on function public.request_admin_access(text, text) from public, anon;
+revoke all on function public.list_admin_requests() from public, anon;
+revoke all on function public.decide_admin_request(text, boolean, text) from public, anon;
+grant execute on function public.my_access_status() to authenticated;
+grant execute on function public.request_admin_access(text, text) to authenticated;
+grant execute on function public.list_admin_requests() to authenticated;
+grant execute on function public.decide_admin_request(text, boolean, text) to authenticated;
+
+-- ---------------------------------------------------------
 -- 관리자 등록 — 아래 이메일을 본인 것으로 바꾸고 실행
 -- (Authentication > Users 에서 같은 이메일로 사용자도 만들어 두세요)
 -- ---------------------------------------------------------

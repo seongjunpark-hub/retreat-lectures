@@ -30,6 +30,26 @@
   </div>
 </main>
 
+<!-- 승인 요청 / 대기 -->
+<main id="pendingBox" class="wrap hidden">
+  <div class="narrow">
+    <div class="card" id="reqForm">
+      <h2>간사 승인 요청</h2>
+      <p class="hint" id="reqHint" style="margin:-6px 0 18px">이름과 담당 지구를 적어 보내면, 최고관리자가 승인한 뒤부터 신청 현황을 볼 수 있어요.</p>
+      <div class="field"><label for="reqName">이름</label><input id="reqName" maxlength="30" placeholder="예: 김OO 간사"></div>
+      <div class="field"><label for="reqDistrict">담당 지구</label>
+        <select id="reqDistrict"><option value="">선택하세요</option><option>안동</option><option>영주</option><option>경주</option><option>김천구미</option><option>포항</option><option value="*">전체</option></select></div>
+      <button class="big" id="reqBtn">승인 요청 보내기</button>
+    </div>
+    <div class="card hidden" id="reqWait" style="text-align:center">
+      <h2>⏳ 승인 대기 중</h2>
+      <p class="hint" id="reqWaitText" style="font-size:15px">최고관리자가 승인하면 자동으로 화면이 열려요.</p>
+      <div class="actions" style="justify-content:center"><button class="ghost" id="reqRefresh">새로고침</button><button class="ghost" id="reqEdit">요청 내용 수정</button></div>
+    </div>
+    <p class="foot-link"><a href="#" id="pendingLogout">다른 계정으로 로그인</a></p>
+  </div>
+</main>
+
 <main id="app" class="wrap hidden">
   <div class="tabs">
     <button data-tab="district" class="on">우리 지구</button>
@@ -93,12 +113,16 @@
 
   <!-- 관리자 -->
   <section data-pane="admins" class="hidden">
+    <div class="card" id="reqCard">
+      <h2>승인 요청 <span id="reqCount" style="color:var(--warn)"></span></h2>
+      <div id="reqList"></div>
+    </div>
     <div class="card">
-      <h2>간사 추가</h2>
+      <h2>간사 직접 추가</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="newAdmin" type="email" placeholder="간사님 이메일" style="flex:1;min-width:200px">
         <select id="newRole" style="width:auto"><option value="staff">간사</option><option value="owner">최고관리자</option></select>
         <button id="addAdmin" style="white-space:nowrap">추가</button></div>
-      <p class="hint">추가한 뒤 그 간사님께 알려 주세요: 관리자 화면 → <b>처음이에요? 계정 만들기</b> → 같은 이메일로 비밀번호 정하기</p>
+      <p class="hint">보통은 간사님이 직접 <b>계정 만들기 → 승인 요청</b>을 하면 위에 요청이 떠요. 여기서는 이메일을 미리 넣어 둘 수도 있어요.</p>
     </div>
     <div class="card"><h2>간사 목록</h2><div id="adminList"></div></div>
   </section>
@@ -137,13 +161,70 @@ const REG = r => r === '등록' ? '완등록' : (r || '');
 const DISTRICTS = ['안동','영주','경주','김천구미','포항'];
 
 // ---------- 로그인 ----------
-function showLogin(){ $('#loginBox').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#who').classList.add('hidden'); }
+function showLogin(){ $('#loginBox').classList.remove('hidden'); $('#pendingBox').classList.add('hidden'); $('#app').classList.add('hidden'); $('#who').classList.add('hidden'); }
+
+// ---------- 승인 요청 / 대기 ----------
+let pendingTimer = null;
+function stopPendingPoll(){ if (pendingTimer) { clearInterval(pendingTimer); pendingTimer = null; } }
+async function showPending(session){
+  $('#loginBox').classList.add('hidden'); $('#app').classList.add('hidden'); $('#pendingBox').classList.remove('hidden');
+  $('#who').classList.remove('hidden'); $('#whoEmail').textContent = session.user.email;
+  const { data, error } = await sb.rpc('my_access_status');
+  if (error) { toast('서버 설정이 최신이 아니에요. 최고관리자에게 알려 주세요.'); return; }
+  const st = data?.status, r = data?.request;
+  if (r) { $('#reqName').value = r.name || ''; $('#reqDistrict').value = r.district || ''; }
+  const waiting = st === 'pending';
+  $('#reqForm').classList.toggle('hidden', waiting);
+  $('#reqWait').classList.toggle('hidden', !waiting);
+  $('#reqHint').textContent = st === 'rejected' ? '이전 요청이 승인되지 않았어요. 필요하면 다시 요청해 주세요.' : '이름과 담당 지구를 적어 보내면, 최고관리자가 승인한 뒤부터 신청 현황을 볼 수 있어요.';
+  if (waiting) {
+    $('#reqWaitText').textContent = `${r?.name || ''}${r?.district ? ' · ' + (r.district === '*' ? '전체' : r.district) : ''} — 최고관리자가 승인하면 자동으로 화면이 열려요.`;
+    if (!pendingTimer) pendingTimer = setInterval(async () => { const { data: ok } = await sb.rpc('is_admin'); if (ok) { toast('승인됐어요!'); boot(); } }, 15000);
+  } else stopPendingPoll();
+}
+$('#reqBtn').onclick = async () => {
+  const name = $('#reqName').value.trim(), district = $('#reqDistrict').value;
+  if (!name) { toast('이름을 입력해 주세요.'); $('#reqName').focus(); return; }
+  if (!district) { toast('담당 지구를 골라 주세요.'); return; }
+  const { data, error } = await sb.rpc('request_admin_access', { p_name: name, p_district: district });
+  if (error || !data?.ok) { toast('요청 실패: ' + (error?.message || data?.message || '')); return; }
+  if (data.status === 'admin') { boot(); return; }
+  toast('승인 요청을 보냈어요.'); const { data: { session } } = await sb.auth.getSession(); showPending(session);
+};
+$('#reqRefresh').onclick = () => boot();
+$('#reqEdit').onclick = () => { $('#reqForm').classList.remove('hidden'); $('#reqWait').classList.add('hidden'); };
+$('#pendingLogout').onclick = async e => { e.preventDefault(); stopPendingPoll(); await sb.auth.signOut(); location.reload(); };
+
+// ---------- 최고관리자: 승인 요청 목록 ----------
+async function loadRequests(){
+  const { data, error } = await sb.rpc('list_admin_requests');
+  const list = error ? [] : (data || []);
+  $('#reqCount').textContent = list.length ? `(${list.length})` : '';
+  $('#adminsTab').textContent = list.length ? `간사 관리 🔴${list.length}` : '간사 관리';
+  const when = iso => new Date(iso).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  $('#reqList').innerHTML = error ? '<p class="hint">요청 목록을 불러오지 못했어요.</p>'
+    : list.length ? list.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)">
+      <span><b>${esc(r.name)}</b> <small style="color:var(--muted)">${esc(r.district === '*' ? '전체' : r.district)}</small><br>
+        <small style="color:var(--muted)">${esc(r.email)} · ${when(r.created_at)}</small></span>
+      <span style="display:flex;gap:6px"><button class="small" data-approve="${esc(r.email)}">간사로 승인</button><button class="danger small" data-reject="${esc(r.email)}">거절</button></span></div>`).join('')
+    : '<p class="empty" style="padding:6px 0">새 요청이 없어요.</p>';
+  return list.length;
+}
+$('#reqList').onclick = async e => {
+  const ap = e.target.closest('[data-approve]')?.dataset.approve, rj = e.target.closest('[data-reject]')?.dataset.reject;
+  const email = ap || rj; if (!email) return;
+  if (rj && !confirm(email + ' 님의 요청을 거절할까요?')) return;
+  const { data, error } = await sb.rpc('decide_admin_request', { p_email: email, p_approve: !!ap, p_role: 'staff' });
+  if (error || !data?.ok) { toast('처리 실패: ' + (error?.message || data?.message || '')); return; }
+  toast(ap ? '승인했어요.' : '거절했어요.'); loadRequests(); loadAdmins();
+};
 async function boot(){
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { showLogin(); return; }
   const { data: ok } = await sb.rpc('is_admin');
-  if (!ok) { toast('등록되지 않은 계정이에요. 최고관리자에게 추가를 요청하세요.'); await sb.auth.signOut(); showLogin(); return; }
-  $('#loginBox').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#who').classList.remove('hidden');
+  if (!ok) { showPending(session); return; }
+  stopPendingPoll();
+  $('#loginBox').classList.add('hidden'); $('#pendingBox').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#who').classList.remove('hidden');
   $('#whoEmail').textContent = session.user.email; myEmail = session.user.email.toLowerCase();
   const { data: info } = await sb.rpc('my_admin');
   if (info) me = info;
@@ -155,6 +236,7 @@ async function boot(){
   $('#pageTitle').textContent = me.role === 'owner' ? '선택특강 관리' : '선택특강 신청 현황';
   $('#whoEmail').textContent = session.user.email + (me.role === 'owner' ? ' · 최고관리자' : ' · 간사');
   setupDistrict();
+  if (me.role === 'owner') loadRequests().then(n => { if (n) toast(`새 간사 승인 요청이 ${n}건 있어요.`); });
   await loadLectures();
   await Promise.all([loadSettings(), loadEnrolls()]);
 }
@@ -162,7 +244,7 @@ let signupMode = false;
 $('#toggleMode').onclick = e => {
   e.preventDefault(); signupMode = !signupMode;
   $('#loginTitle').textContent = signupMode ? '간사 계정 만들기' : '간사·관리자 로그인';
-  $('#loginHint').textContent = signupMode ? '최고관리자가 추가해 준 이메일로 비밀번호를 정하세요. (8자 이상)' : '등록된 이메일과 비밀번호로 로그인하세요.';
+  $('#loginHint').textContent = signupMode ? '이메일과 비밀번호(8자 이상)를 정해 가입하면, 다음 화면에서 승인 요청을 보낼 수 있어요.' : '등록된 이메일과 비밀번호로 로그인하세요.';
   $('#pw2Wrap').classList.toggle('hidden', !signupMode);
   $('#loginBtn').textContent = signupMode ? '계정 만들기' : '로그인';
   $('#toggleMode').textContent = signupMode ? '이미 계정이 있어요 → 로그인' : '처음이에요? 계정 만들기';
@@ -196,7 +278,7 @@ $$('.tabs button[data-tab]').forEach(b => b.onclick = () => {
   $$('.tabs button[data-tab]').forEach(x => x.classList.toggle('on', x === b));
   $$('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== b.dataset.tab));
   if (b.dataset.tab === 'enrolls' || b.dataset.tab === 'district') loadEnrolls();
-  if (b.dataset.tab === 'admins') loadAdmins();
+  if (b.dataset.tab === 'admins') { loadAdmins(); loadRequests(); }
 });
 
 // ---------- 특강 ----------
