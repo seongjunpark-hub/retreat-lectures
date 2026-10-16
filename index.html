@@ -17,21 +17,37 @@
   </div>
   <div class="who hidden" id="who">
     <b id="whoName"></b> 님<br><span id="whoMeta"></span><br>
-    <button id="editInfo">정보 변경</button>
+    <span class="who-btns"><button id="editInfo">정보 변경</button> <button id="logoutBtn">로그아웃</button></span>
   </div>
 </div></header>
 
 <!-- ① 입장 / 내 정보 화면 -->
 <main id="entry" class="wrap hidden">
   <div class="narrow">
-    <div class="card">
-      <h2 id="entryTitle">입장하기</h2>
-      <p class="hint" id="entryHint" style="margin:-6px 0 18px">신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.</p>
+    <div class="seg" id="modeSeg" style="margin:0 0 14px">
+      <button type="button" data-m="new">처음이에요</button>
+      <button type="button" data-m="login">이미 등록했어요</button>
+    </div>
+
+    <!-- 로그인 -->
+    <div class="card hidden" id="loginCard">
+      <h2>로그인</h2>
+      <p class="hint" style="margin:-6px 0 18px">처음 등록할 때 쓴 이름과 휴대폰 번호를 입력해 주세요.</p>
+      <div class="field"><label for="lName">이름</label><input id="lName" autocomplete="name" maxlength="30"></div>
+      <div class="field"><label for="lPhone">휴대폰 번호</label><input id="lPhone" inputmode="numeric" autocomplete="tel" placeholder="010-1234-5678" maxlength="13"></div>
+      <div class="field hidden code-field"><label for="lCode">입장 코드</label><input id="lCode" maxlength="20" inputmode="numeric" placeholder="안내받은 코드"></div>
+      <button class="big" id="loginBtn">로그인</button>
+    </div>
+
+    <!-- 등록 / 정보 변경 -->
+    <div class="card hidden" id="regCard">
+      <h2 id="entryTitle">정보 등록</h2>
+      <p class="hint" id="entryHint" style="margin:-6px 0 18px">처음 한 번만 등록하면, 다음부터는 이름과 번호로 로그인할 수 있어요.</p>
       <div class="field"><label for="name">이름</label><input id="name" autocomplete="name" maxlength="30"></div>
       <div class="field"><label for="phone">휴대폰 번호</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="010-1234-5678" maxlength="13"></div>
       <div class="field" id="phone2Wrap"><label for="phone2">휴대폰 번호 확인</label><input id="phone2" inputmode="numeric" autocomplete="off" placeholder="한 번 더 입력" maxlength="13">
         <p class="hint" id="phoneMsg"></p></div>
-      <p class="hint hidden" id="lockHint" style="margin:-8px 0 16px">이미 특강을 신청해서 이름·번호는 바꿀 수 없어요. 바꾸려면 신청을 취소한 뒤 다시 해 주세요.</p>
+      <p class="hint hidden" id="lockHint" style="margin:-8px 0 16px">이름·번호는 바꿀 수 없어요. 잘못 등록했다면 담당 간사에게 알려 주세요.</p>
 
       <div class="field" id="regWrap"><label>수련회 등록 상태</label>
         <div class="seg" id="regSeg"><button type="button" data-v="가등록">가등록</button><button type="button" data-v="등록">완등록</button></div>
@@ -57,8 +73,8 @@
       <div class="field"><label>순장 / 순원</label>
         <div class="seg" id="soonSeg"><button type="button" data-v="순장">순장</button><button type="button" data-v="순원">순원</button><button type="button" data-v="해당 없음">해당 없음</button></div>
       </div>
-      <div class="field hidden" id="codeWrap"><label for="code">입장 코드</label><input id="code" maxlength="20" inputmode="numeric" placeholder="안내받은 코드"></div>
-      <button class="big" id="enterBtn">입장하기</button>
+      <div class="field hidden code-field" id="codeWrap"><label for="code">입장 코드</label><input id="code" maxlength="20" inputmode="numeric" placeholder="안내받은 코드"></div>
+      <button class="big" id="enterBtn">등록하고 입장하기</button>
       <button class="big ghost hidden" id="cancelEditBtn" style="margin-top:8px">취소</button>
     </div>
     <a class="foot-link" href="admin.html">간사·관리자 로그인 →</a>
@@ -90,20 +106,23 @@ let state = null, offset = 0, lastPhase = null, mine = [], pending = null, profi
 let toastTimer;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200); }
 
-// ---------- 내 정보 (이 기기에 저장) ----------
-const KEY = 'rl_profile_v3';
+// ---------- 내 정보 (서버 명단 + 이 기기에 로그인 유지) ----------
+const KEY = 'rl_student_v4';
 const DISTRICTS = ['안동','영주','경주','김천구미','포항'];
 function loadProfile(){ try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
-function saveProfile(p){ try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {} }
-let reg = '', soon = '', editMode = false;
+function saveProfile(p){ try { p ? localStorage.setItem(KEY, JSON.stringify(p)) : localStorage.removeItem(KEY); } catch (e) {} }
+let reg = '', soon = '', editMode = false, mode = 'new';
 const fmtPhone = v => { const d = v.replace(/\D/g, '').slice(0, 11); return d.length < 4 ? d : d.length < 8 ? d.slice(0,3) + '-' + d.slice(3) : d.slice(0,3) + '-' + d.slice(3,7) + '-' + d.slice(7); };
 const phoneOk = d => /^010\d{8}$/.test(d);
+const REGLABEL = r => r === '등록' ? '완등록' : (r || '');
 function syncSeg(){
   $$('#regSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === reg));
   $$('#soonSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === soon));
+  $$('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
 }
 $('#regSeg').onclick = e => { const b = e.target.closest('button'); if (b) { reg = b.dataset.v; syncSeg(); } };
 $('#soonSeg').onclick = e => { const b = e.target.closest('button'); if (b) { soon = b.dataset.v; syncSeg(); } };
+$('#modeSeg').onclick = e => { const b = e.target.closest('button'); if (b) showEntry(b.dataset.m); };
 
 function checkPhones(){
   const a = $('#phone').value.replace(/\D/g, ''), b = $('#phone2').value.replace(/\D/g, ''), msg = $('#phoneMsg');
@@ -113,7 +132,7 @@ function checkPhones(){
   if (a !== b) { msg.textContent = '두 번호가 달라요. 다시 확인해 주세요.'; msg.style.color = 'var(--warn)'; return; }
   msg.textContent = '✓ 번호가 일치해요'; msg.style.color = 'var(--ok)';
 }
-['phone','phone2'].forEach(id => $('#' + id).addEventListener('input', e => { e.target.value = fmtPhone(e.target.value); checkPhones(); }));
+['phone','phone2','lPhone'].forEach(id => $('#' + id).addEventListener('input', e => { e.target.value = fmtPhone(e.target.value); if (id !== 'lPhone') checkPhones(); }));
 
 function campusOptions(d){
   const list = (state?.settings.campuses || {})[d] || [];
@@ -137,6 +156,7 @@ function fillForm(p){
   $('#name').value = p.name || ''; $('#phone').value = fmtPhone(p.phone || ''); $('#phone2').value = fmtPhone(p.phone || '');
   reg = p.reg || ''; soon = p.soon || ''; syncSeg();
   $('#district').value = p.district || ''; syncDistrict();
+  $('#campusEtc').value = '';
   if (p.campus) {
     const opts = [...$('#campus').options].map(o => o.value);
     if (!$('#campus').classList.contains('hidden') && opts.includes(p.campus)) $('#campus').value = p.campus;
@@ -157,48 +177,85 @@ function readForm(){
     code: $('#code').value.trim()
   };
 }
-function problem(f, strictPhone2){
+function problem(f, isNew){
   if (!f.name) return ['이름을 입력해 주세요.', '#name'];
   if (!phoneOk(f.phone)) return ['휴대폰 번호를 010으로 시작하는 11자리로 입력해 주세요.', '#phone'];
-  if (strictPhone2 && f.phone !== f.phone2) return ['휴대폰 번호 확인이 맞지 않아요.', '#phone2'];
-  if (!f.reg) return ['가등록/완등록 중 하나를 선택해 주세요.'];
+  if (isNew && f.phone !== f.phone2) return ['휴대폰 번호 확인이 맞지 않아요.', '#phone2'];
+  if (isNew && !f.reg) return ['가등록/완등록 중 하나를 선택해 주세요.'];
   if (!f.district) return ['지구를 선택해 주세요.', '#district'];
   if (DISTRICTS.includes(f.district) && !f.campus) return ['캠퍼스를 선택해 주세요.', '#campus'];
   if (f.district === '그외' && !f.follow) return ['함께 참여하는 지구를 선택해 주세요.', '#follow'];
   if (f.district === '그외' && !f.church) return ['출석 교회를 입력해 주세요.', '#church'];
   if (!f.grade) return ['학년을 선택해 주세요.', '#grade'];
   if (!f.soon) return ['순장/순원 여부를 선택해 주세요.'];
-  if (state?.settings.needs_code && !f.code) return ['입장 코드를 입력해 주세요.', '#code'];
+  if (isNew && state?.settings.needs_code && !f.code) return ['입장 코드를 입력해 주세요.', '#code'];
   return null;
 }
+function serverMsg(error, data){
+  const m = error?.message || data?.message || '';
+  if (/function|schema cache|Could not find/i.test(m)) return '서버 설정이 최신이 아니에요. 담당 간사에게 알려 주세요.';
+  return m || '잠시 후 다시 시도해 주세요.';
+}
+
+// 등록 / 정보 변경 저장
 $('#enterBtn').onclick = async () => {
-  const f = readForm(), locked = editMode && mine.length;
-  const pr = problem(f, !locked);
+  const f = readForm(), isNew = !editMode;
+  if (editMode) { f.name = profile.name; f.phone = profile.phone; f.code = profile.code; }
+  const pr = problem(f, isNew);
   if (pr) { toast(pr[0]); if (pr[1]) $(pr[1]).focus(); return; }
-  delete f.phone2;
-  if (locked) {   // 이미 신청한 학생: 신청 내역의 정보도 함께 고침
-    const { data, error } = await sb.rpc('update_my_info', { p_name: f.name, p_phone: f.phone, p_district: f.district, p_campus: f.campus,
-      p_grade: f.grade, p_soon_role: f.soon, p_follow_district: f.follow, p_church: f.church });
-    if (error || !data?.ok) { toast('저장 실패: ' + (data?.message || '잠시 후 다시 시도해 주세요.')); return; }
+  const btn = $('#enterBtn'), label = btn.textContent; btn.disabled = true; btn.textContent = '저장 중…';
+  const { data, error } = await sb.rpc('save_student', { p_name: f.name, p_phone: f.phone, p_reg_status: f.reg, p_district: f.district,
+    p_campus: f.campus, p_grade: f.grade, p_soon_role: f.soon, p_follow_district: f.follow, p_church: f.church, p_code: f.code, p_is_new: isNew });
+  btn.disabled = false; btn.textContent = label;
+  if (error || !data?.ok) {
+    toast(serverMsg(error, data));
+    if (data?.code === 'exists') { $('#lName').value = f.name; $('#lPhone').value = fmtPhone(f.phone); $('#lCode').value = f.code; showEntry('login'); }
+    return;
   }
-  profile = f; saveProfile(profile);
-  if (editMode) toast('내 정보를 저장했어요.');
+  profile = { ...data.student, code: f.code }; saveProfile(profile);
+  toast(isNew ? '등록했어요! 이제 특강을 신청할 수 있어요.' : '내 정보를 저장했어요.');
   showBoard();
 };
-$('#editInfo').onclick = () => { fillForm(profile); showEntry(true); };
-$('#cancelEditBtn').onclick = () => showBoard();
 
-function showEntry(edit){
-  editMode = !!edit;
-  const locked = editMode && mine.length > 0;
-  $('#entryTitle').textContent = editMode ? '내 정보 변경' : '입장하기';
-  $('#entryHint').textContent = editMode ? '바꿀 내용을 고친 뒤 저장해 주세요.' : '신청에 필요한 정보를 먼저 입력해 주세요. 이 기기에 저장되어 다음엔 바로 들어가요.';
-  $('#enterBtn').textContent = editMode ? '저장하고 돌아가기' : '입장하기';
+// 로그인
+$('#loginBtn').onclick = async () => {
+  const name = $('#lName').value.trim(), phone = $('#lPhone').value.replace(/\D/g, ''), code = $('#lCode').value.trim();
+  if (!name) { toast('이름을 입력해 주세요.'); $('#lName').focus(); return; }
+  if (!phoneOk(phone)) { toast('휴대폰 번호를 010으로 시작하는 11자리로 입력해 주세요.'); $('#lPhone').focus(); return; }
+  if (state?.settings.needs_code && !code) { toast('입장 코드를 입력해 주세요.'); $('#lCode').focus(); return; }
+  const btn = $('#loginBtn'); btn.disabled = true; btn.textContent = '확인 중…';
+  const { data, error } = await sb.rpc('student_login', { p_name: name, p_phone: phone, p_code: code });
+  btn.disabled = false; btn.textContent = '로그인';
+  if (error || !data?.ok) { toast(serverMsg(error, data)); return; }
+  profile = { ...data.student, code }; saveProfile(profile);
+  showBoard();
+};
+$('#lPhone').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
+
+$('#editInfo').onclick = () => { fillForm(profile); showEntry('edit'); };
+$('#cancelEditBtn').onclick = () => showBoard();
+$('#logoutBtn').onclick = () => {
+  if (!confirm('로그아웃할까요? 신청 내역은 그대로 남아 있고, 이름과 번호로 다시 로그인할 수 있어요.')) return;
+  profile = null; mine = []; saveProfile(null);
+  $('#lName').value = ''; $('#lPhone').value = ''; $('#lCode').value = ''; fillForm({});
+  showEntry('login');
+};
+
+function showEntry(m){
+  mode = m === 'edit' ? mode : m; editMode = m === 'edit';
+  syncSeg();
+  $('#modeSeg').classList.toggle('hidden', editMode);
+  $('#loginCard').classList.toggle('hidden', m !== 'login');
+  $('#regCard').classList.toggle('hidden', m === 'login');
+  $('#entryTitle').textContent = editMode ? '내 정보 변경' : '정보 등록';
+  $('#entryHint').textContent = editMode ? '바꿀 내용을 고친 뒤 저장해 주세요.' : '처음 한 번만 등록하면, 다음부터는 이름과 번호로 로그인할 수 있어요.';
+  $('#enterBtn').textContent = editMode ? '저장하고 돌아가기' : '등록하고 입장하기';
   $('#cancelEditBtn').classList.toggle('hidden', !editMode);
-  $('#name').readOnly = $('#phone').readOnly = locked;
-  $('#phone2Wrap').classList.toggle('hidden', locked);
-  $('#lockHint').classList.toggle('hidden', !locked);
-  $('#regWrap').classList.toggle('hidden', locked);
+  $('#name').readOnly = $('#phone').readOnly = editMode;
+  $('#phone2Wrap').classList.toggle('hidden', editMode);
+  $('#lockHint').classList.toggle('hidden', !editMode);
+  $('#regWrap').classList.toggle('hidden', editMode);
+  $$('.code-field').forEach(x => x.classList.toggle('hidden', !state?.settings.needs_code || editMode));
   $('#entry').classList.remove('hidden'); $('#board').classList.add('hidden'); $('#who').classList.add('hidden');
   window.scrollTo(0, 0);
 }
@@ -207,7 +264,7 @@ function showBoard(){
   $('#entry').classList.add('hidden'); $('#board').classList.remove('hidden'); $('#who').classList.remove('hidden');
   $('#whoName').textContent = profile.name;
   const where = profile.district === '그외' ? `${profile.church} (${profile.follow}지구와 함께)` : `${profile.district} · ${profile.campus}`;
-  $('#whoMeta').textContent = `${where} · ${profile.grade}`;
+  $('#whoMeta').textContent = `${where} · ${profile.grade} · ${REGLABEL(profile.reg)}`;
   window.scrollTo(0, 0);
   loadMine();
   if (state) renderBoard();
@@ -241,11 +298,13 @@ async function load(){
   const s = state.settings;
   $('#eventTitle').textContent = s.event_title; document.title = s.event_title + ' 수강신청';
   $('#notice').textContent = s.notice || '';
-  $('#codeWrap').classList.toggle('hidden', !s.needs_code);
   if (first) {
-    profile = loadProfile();
-    if (profile && !problem({ ...profile, phone2: profile.phone }, false)) showBoard();
-    else { fillForm(profile); showEntry(false); }
+    const saved = loadProfile();
+    if (saved?.name && saved?.phone) {
+      const { data } = await sb.rpc('student_login', { p_name: saved.name, p_phone: saved.phone, p_code: saved.code || '' });
+      if (data?.ok) { profile = { ...data.student, code: saved.code || '' }; saveProfile(profile); showBoard(); }
+      else { $('#lName').value = saved.name; $('#lPhone').value = fmtPhone(saved.phone); showEntry('login'); if (data?.message) toast(data.message); }
+    } else showEntry('new');
   }
   lastPhase = phase();
   renderBoard();
@@ -328,15 +387,12 @@ $('#lectures').addEventListener('click', async e => {
   if (!btn || btn.disabled || pending) return;
   const l = state.lectures.find(x => x.id === btn.dataset.id);
   pending = l.id; renderLectures();
-  const { data, error } = await sb.rpc('enroll', { p_lecture_id: l.id, p_name: profile.name, p_phone: profile.phone,
-    p_reg_status: profile.reg, p_district: profile.district, p_code: profile.code || '',
-    p_campus: profile.campus || '', p_grade: profile.grade || '', p_soon_role: profile.soon || '',
-    p_follow_district: profile.follow || '', p_church: profile.church || '' });
+  const { data, error } = await sb.rpc('enroll', { p_lecture_id: l.id, p_name: profile.name, p_phone: profile.phone, p_code: profile.code || '' });
   pending = null;
   if (error) toast('네트워크 오류예요. 다시 눌러 주세요.');
   else {
     toast(data.message);
-    if (data.code === 'bad_code') { fillForm(profile); showEntry(true); $('#code').focus(); }
+    if (data.code === 'bad_code' || data.code === 'no_student') { const p = profile; profile = null; saveProfile(null); $('#lName').value = p.name; $('#lPhone').value = fmtPhone(p.phone); showEntry('login'); }
   }
   await loadMine(); await load();
   if (data?.ok) window.scrollTo({ top: 0, behavior: 'smooth' });

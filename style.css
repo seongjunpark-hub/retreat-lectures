@@ -25,7 +25,7 @@ body{background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMac
 h1{margin:2px 0 0;font-size:24px;line-height:1.3}
 .notice{margin:8px 0 0;font-size:14px;opacity:.9;white-space:pre-wrap}
 .top .who{font-size:14px;text-align:right}
-@media (max-width:520px){.top .who{text-align:left;width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.top .who br{display:none}.top .who button{margin:0 0 0 auto}}
+@media (max-width:520px){.top .who{text-align:left;width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.top .who br{display:none}.top .who button{margin:0}.top .who .who-btns{margin-left:auto;display:flex;gap:6px}}
 .top .who b{font-size:16px}
 .top .who button{margin-top:6px;background:rgba(255,255,255,.18);color:inherit;padding:6px 12px;font-size:13px}
 h2{font-size:18px;margin:0 0 12px}

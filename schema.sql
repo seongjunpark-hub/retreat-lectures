@@ -75,6 +75,29 @@ do $$ begin
 end $$;
 create index if not exists enrollments_lecture_idx on public.enrollments (lecture_id, created_at);
 
+-- 5) 학생 명단 — 입장할 때 등록, 이름+번호로 로그인. 등록 상태·비고는 간사가 관리
+create table if not exists public.students (
+  id              uuid primary key default gen_random_uuid(),
+  name            text not null,
+  phone           text not null,   -- 숫자만
+  reg_status      text not null default '',   -- 가등록 / 등록(완등록)
+  district        text not null default '',
+  campus          text not null default '',
+  grade           text not null default '',
+  soon_role       text not null default '',
+  follow_district text not null default '',
+  church          text not null default '',
+  note            text not null default '',   -- 비고 (간사 입력)
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (name, phone)
+);
+-- 예전 버전에서 신청만 있던 학생들을 명단으로 옮기기
+insert into public.students (name, phone, reg_status, district, campus, grade, soon_role, follow_district, church, note)
+select student_name, student_phone, reg_status, district, campus, grade, soon_role, follow_district, church, note
+from public.enrollments
+on conflict (name, phone) do nothing;
+
 -- ---------------------------------------------------------
 -- 권한: 학생(anon)은 테이블 직접 접근 불가, 아래 함수로만 접근
 -- ---------------------------------------------------------
@@ -112,6 +135,11 @@ create policy lectures_read     on public.lectures    for select to authenticate
 create policy lectures_write    on public.lectures    for all    to authenticated using (public.is_owner()) with check (public.is_owner());
 create policy enrollments_read  on public.enrollments for select to authenticated using (public.is_admin());
 create policy enrollments_write on public.enrollments for all    to authenticated using (public.is_owner()) with check (public.is_owner());
+alter table public.students enable row level security;
+drop policy if exists students_read  on public.students;
+drop policy if exists students_write on public.students;
+create policy students_read  on public.students for select to authenticated using (public.is_admin());
+create policy students_write on public.students for all    to authenticated using (public.is_owner()) with check (public.is_owner());
 
 -- settings(신청 시간·입장 코드 등): 관리자는 보기만, 최고관리자만 수정
 drop policy if exists settings_read  on public.settings;
@@ -152,6 +180,25 @@ begin
 end;
 $$;
 
+-- 간사: 학생 명단의 등록 상태·비고 수정
+create or replace function public.staff_update_student(p_id uuid, p_reg_status text, p_note text)
+returns json language plpgsql security definer set search_path = public as $$
+declare st students;
+begin
+  if not public.is_admin() then return json_build_object('ok', false, 'message', '권한이 없어요.'); end if;
+  if p_reg_status is not null and p_reg_status not in ('가등록', '등록') then
+    return json_build_object('ok', false, 'message', '등록 상태가 올바르지 않아요.');
+  end if;
+  update students set reg_status = coalesce(p_reg_status, reg_status),
+                      note = coalesce(left(btrim(p_note), 100), note), updated_at = now()
+   where id = p_id returning * into st;
+  if not found then return json_build_object('ok', false, 'message', '학생을 찾을 수 없어요.'); end if;
+  update enrollments set reg_status = st.reg_status, note = st.note
+   where student_name = st.name and student_phone = st.phone;
+  return json_build_object('ok', true);
+end;
+$$;
+
 -- 내 담당 지구 바꾸기 (일반 간사도 자기 것만)
 create or replace function public.set_my_district(p_district text)
 returns void language sql security definer set search_path = public as $$
@@ -188,41 +235,34 @@ returns json language sql stable security definer set search_path = public as $$
   );
 $$;
 
--- 수강신청 (선착순: 강의 행을 잠그고 인원 확인 후 등록)
-drop function if exists public.enroll(uuid, text, text, text, text);
-drop function if exists public.enroll(uuid, text, text, text, text, text);
-create or replace function public.enroll(
-  p_lecture_id uuid, p_name text, p_phone text,
-  p_reg_status text, p_district text, p_code text default '',
-  p_campus text default '', p_grade text default '', p_soon_role text default '',
-  p_follow_district text default '', p_church text default ''
+-- 입장 코드 확인
+create or replace function public._code_ok(p_code text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select access_code = '' or btrim(coalesce(p_code, '')) = access_code from settings where id = 1;
+$$;
+
+create or replace function public._student_json(st students)
+returns json language sql immutable as $$
+  select json_build_object('name', st.name, 'phone', st.phone, 'reg', st.reg_status, 'district', st.district,
+    'campus', st.campus, 'grade', st.grade, 'soon', st.soon_role, 'follow', st.follow_district, 'church', st.church);
+$$;
+
+-- 학생 정보 등록(p_is_new = true) / 수정(false). 등록 상태는 처음 등록할 때만 학생이 고름
+create or replace function public.save_student(
+  p_name text, p_phone text, p_reg_status text, p_district text, p_campus text, p_grade text,
+  p_soon_role text, p_follow_district text, p_church text, p_code text, p_is_new boolean
 )
 returns json language plpgsql security definer set search_path = public as $$
 declare
-  s        settings;
-  lec      lectures;
-  v_name   text := btrim(coalesce(p_name, ''));
-  v_phone  text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
-  v_count  int;
-  v_exist  enrollments;
-  v_other  text;
+  v_name  text := btrim(coalesce(p_name, ''));
+  v_phone text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  st students;
 begin
-  select * into s from settings where id = 1;
-
-  if s.open_at is null or now() < s.open_at then
-    return json_build_object('ok', false, 'code', 'not_open', 'message', '아직 신청 시간이 아니에요.');
-  end if;
-  if s.close_at is not null and now() > s.close_at then
-    return json_build_object('ok', false, 'code', 'closed', 'message', '신청이 마감되었어요.');
-  end if;
-  if s.access_code <> '' and btrim(coalesce(p_code, '')) <> s.access_code then
+  if not public._code_ok(p_code) then
     return json_build_object('ok', false, 'code', 'bad_code', 'message', '입장 코드가 맞지 않아요.');
   end if;
-  if v_name = '' or length(v_name) > 30 or length(v_phone) < 10 or length(v_phone) > 11 then
-    return json_build_object('ok', false, 'code', 'invalid', 'message', '이름과 휴대폰 번호를 정확히 입력해 주세요.');
-  end if;
-  if coalesce(p_reg_status, '') not in ('가등록', '등록') then
-    return json_build_object('ok', false, 'code', 'invalid', 'message', '가등록/등록 여부를 선택해 주세요.');
+  if v_name = '' or length(v_name) > 30 or v_phone !~ '^010\d{8}$' then
+    return json_build_object('ok', false, 'code', 'invalid', 'message', '이름과 휴대폰 번호(010으로 시작하는 11자리)를 확인해 주세요.');
   end if;
   if coalesce(p_district, '') not in ('안동','영주','경주','김천구미','포항','그외') then
     return json_build_object('ok', false, 'code', 'invalid', 'message', '지구를 선택해 주세요.');
@@ -237,14 +277,89 @@ begin
     return json_build_object('ok', false, 'code', 'invalid', 'message', '학년과 순장/순원 여부를 선택해 주세요.');
   end if;
 
+  select * into st from students where name = v_name and phone = v_phone;
+  if found and p_is_new then
+    return json_build_object('ok', false, 'code', 'exists', 'message', '이미 등록된 이름·번호예요. "이미 등록했어요"에서 로그인해 주세요.');
+  end if;
+  if not found then
+    if coalesce(p_reg_status, '') not in ('가등록', '등록') then
+      return json_build_object('ok', false, 'code', 'invalid', 'message', '가등록/완등록 중 하나를 선택해 주세요.');
+    end if;
+    insert into students (name, phone, reg_status) values (v_name, v_phone, p_reg_status) returning * into st;
+  end if;
+
+  update students set
+    district = p_district,
+    campus = case when p_district = '그외' then '' else left(btrim(p_campus), 40) end,
+    grade = left(p_grade, 20), soon_role = p_soon_role,
+    follow_district = case when p_district = '그외' then p_follow_district else '' end,
+    church = case when p_district = '그외' then left(btrim(p_church), 40) else '' end,
+    updated_at = now()
+  where id = st.id returning * into st;
+  -- 신청 내역에도 같은 정보 반영
+  update enrollments set district = st.district, campus = st.campus, grade = st.grade, soon_role = st.soon_role,
+         follow_district = st.follow_district, church = st.church
+   where student_name = st.name and student_phone = st.phone;
+
+  return json_build_object('ok', true, 'student', public._student_json(st));
+end;
+$$;
+
+-- 학생 로그인 (이름 + 번호)
+create or replace function public.student_login(p_name text, p_phone text, p_code text)
+returns json language plpgsql security definer set search_path = public as $$
+declare st students;
+begin
+  if not public._code_ok(p_code) then
+    return json_build_object('ok', false, 'code', 'bad_code', 'message', '입장 코드가 맞지 않아요.');
+  end if;
+  select * into st from students
+   where name = btrim(coalesce(p_name, '')) and phone = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  if not found then
+    return json_build_object('ok', false, 'code', 'not_found', 'message', '등록된 정보가 없어요. 이름과 번호를 확인하거나 "처음이에요"에서 등록해 주세요.');
+  end if;
+  return json_build_object('ok', true, 'student', public._student_json(st));
+end;
+$$;
+
+-- 수강신청 (선착순: 강의 행을 잠그고 인원 확인 후 등록) — 학생 명단에 있어야 신청 가능
+drop function if exists public.enroll(uuid, text, text, text, text);
+drop function if exists public.enroll(uuid, text, text, text, text, text);
+drop function if exists public.enroll(uuid, text, text, text, text, text, text, text, text, text, text);
+drop function if exists public.update_my_info(text, text, text, text, text, text, text, text);
+create or replace function public.enroll(p_lecture_id uuid, p_name text, p_phone text, p_code text default '')
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  s        settings;
+  lec      lectures;
+  st       students;
+  v_count  int;
+  v_exist  enrollments;
+  v_other  text;
+begin
+  select * into s from settings where id = 1;
+  if s.open_at is null or now() < s.open_at then
+    return json_build_object('ok', false, 'code', 'not_open', 'message', '아직 신청 시간이 아니에요.');
+  end if;
+  if s.close_at is not null and now() > s.close_at then
+    return json_build_object('ok', false, 'code', 'closed', 'message', '신청이 마감되었어요.');
+  end if;
+  if not public._code_ok(p_code) then
+    return json_build_object('ok', false, 'code', 'bad_code', 'message', '입장 코드가 맞지 않아요.');
+  end if;
+  select * into st from students
+   where name = btrim(coalesce(p_name, '')) and phone = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  if not found then
+    return json_build_object('ok', false, 'code', 'no_student', 'message', '학생 정보가 없어요. 로그아웃 후 다시 등록해 주세요.');
+  end if;
+
   -- 이 강의를 동시에 신청하는 사람들은 여기서 한 줄로 줄을 섬
   select * into lec from lectures where id = p_lecture_id for update;
   if not found then
     return json_build_object('ok', false, 'code', 'not_found', 'message', '없는 특강이에요.');
   end if;
 
-  select * into v_exist from enrollments
-   where student_name = v_name and student_phone = v_phone;
+  select * into v_exist from enrollments where student_name = st.name and student_phone = st.phone;
   if found then
     if v_exist.lecture_id = lec.id then
       return json_build_object('ok', true, 'code', 'already', 'message', '이미 신청한 특강이에요.');
@@ -260,11 +375,9 @@ begin
   end if;
 
   insert into enrollments (lecture_id, slot, student_name, student_phone, reg_status, district,
-                           campus, grade, soon_role, follow_district, church)
-  values (lec.id, lec.slot, v_name, v_phone, p_reg_status, p_district,
-          left(btrim(coalesce(p_campus, '')), 40), left(p_grade, 20), p_soon_role,
-          case when p_district = '그외' then p_follow_district else '' end,
-          case when p_district = '그외' then left(btrim(p_church), 40) else '' end);
+                           campus, grade, soon_role, follow_district, church, note)
+  values (lec.id, lec.slot, st.name, st.phone, st.reg_status, st.district,
+          st.campus, st.grade, st.soon_role, st.follow_district, st.church, st.note);
 
   return json_build_object('ok', true, 'code', 'enrolled',
     'message', format('「%s」 신청 완료! (%s/%s)', lec.title, v_count + 1, lec.capacity));
@@ -280,33 +393,10 @@ returns json language sql stable security definer set search_path = public as $$
            'lecture_id', l.id, 'slot', l.slot, 'title', l.title,
            'speaker_name', l.speaker_name, 'location', l.location,
            'created_at', e.created_at
-         ) order by l.slot, e.created_at), '[]'::json)
+         ) order by e.created_at), '[]'::json)
   from enrollments e join lectures l on l.id = e.lecture_id
   where e.student_name = btrim(coalesce(p_name, ''))
     and e.student_phone = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
-$$;
-
--- 신청한 학생이 내 정보(지구·캠퍼스·학년 등) 고치기 — 이름+번호로 찾음, 등록 상태는 간사가 관리하므로 제외
-create or replace function public.update_my_info(
-  p_name text, p_phone text, p_district text, p_campus text, p_grade text,
-  p_soon_role text, p_follow_district text, p_church text
-)
-returns json language plpgsql security definer set search_path = public as $$
-begin
-  if coalesce(p_district, '') not in ('안동','영주','경주','김천구미','포항','그외')
-     or coalesce(p_soon_role, '') not in ('순장','순원','해당 없음') then
-    return json_build_object('ok', false, 'message', '입력값을 확인해 주세요.');
-  end if;
-  update enrollments set
-    district = p_district,
-    campus = case when p_district = '그외' then '' else left(btrim(coalesce(p_campus, '')), 40) end,
-    grade = left(coalesce(p_grade, ''), 20), soon_role = p_soon_role,
-    follow_district = case when p_district = '그외' then coalesce(p_follow_district, '') else '' end,
-    church = case when p_district = '그외' then left(btrim(coalesce(p_church, '')), 40) else '' end
-  where student_name = btrim(coalesce(p_name, ''))
-    and student_phone = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
-  return json_build_object('ok', true);
-end;
 $$;
 
 -- 신청 취소 (마감 전까지만) — 빈자리는 다음 신청자에게
@@ -330,24 +420,29 @@ begin
 end;
 $$;
 
-revoke all on function public.get_state()                               from public;
-revoke all on function public.enroll(uuid, text, text, text, text, text, text, text, text, text, text) from public;
-revoke all on function public.update_my_info(text, text, text, text, text, text, text, text) from public;
-revoke all on function public.my_enrollments(text, text)                from public;
-revoke all on function public.cancel_enrollment(uuid, text, text)       from public;
-grant execute on function public.get_state()                            to anon, authenticated;
-grant execute on function public.enroll(uuid, text, text, text, text, text, text, text, text, text, text) to anon, authenticated;
-grant execute on function public.update_my_info(text, text, text, text, text, text, text, text) to anon, authenticated;
-grant execute on function public.my_enrollments(text, text)             to anon, authenticated;
-grant execute on function public.cancel_enrollment(uuid, text, text)    to anon, authenticated;
-grant execute on function public.is_admin()                             to authenticated;
-revoke all on function public.my_admin()            from public;
+revoke all on function public.get_state() from public;
+revoke all on function public._code_ok(text) from public;
+revoke all on function public.save_student(text, text, text, text, text, text, text, text, text, text, boolean) from public;
+revoke all on function public.student_login(text, text, text) from public;
+revoke all on function public.enroll(uuid, text, text, text) from public;
+revoke all on function public.my_enrollments(text, text) from public;
+revoke all on function public.cancel_enrollment(uuid, text, text) from public;
+revoke all on function public.my_admin() from public;
 revoke all on function public.set_my_district(text) from public;
-grant execute on function public.is_owner()                             to authenticated;
-grant execute on function public.my_admin()                             to authenticated;
-grant execute on function public.set_my_district(text)                  to authenticated;
 revoke all on function public.staff_update_enrollment(uuid, text, text) from public;
+revoke all on function public.staff_update_student(uuid, text, text) from public;
+grant execute on function public.get_state() to anon, authenticated;
+grant execute on function public.save_student(text, text, text, text, text, text, text, text, text, text, boolean) to anon, authenticated;
+grant execute on function public.student_login(text, text, text) to anon, authenticated;
+grant execute on function public.enroll(uuid, text, text, text) to anon, authenticated;
+grant execute on function public.my_enrollments(text, text) to anon, authenticated;
+grant execute on function public.cancel_enrollment(uuid, text, text) to anon, authenticated;
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_owner() to authenticated;
+grant execute on function public.my_admin() to authenticated;
+grant execute on function public.set_my_district(text) to authenticated;
 grant execute on function public.staff_update_enrollment(uuid, text, text) to authenticated;
+grant execute on function public.staff_update_student(uuid, text, text) to authenticated;
 
 -- ---------------------------------------------------------
 -- 관리자 등록 — 아래 이메일을 본인 것으로 바꾸고 실행
