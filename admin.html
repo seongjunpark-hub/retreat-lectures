@@ -545,7 +545,7 @@ function renderDistrict(){
   $('#dStats').innerHTML = `<div><b>${all.length}</b><span>등록 학생</span></div><div><b>${applied}</b><span>특강 신청</span></div><div><b>${all.length - applied}</b><span>미신청</span></div><div><b>${ga}</b><span>가등록</span></div><div><b>${all.length - ga}</b><span>완등록</span></div><div><b>${all.filter(st => st.attendance === '부분참').length}</b><span>부분참</span></div>`;
   const phone = p => p.length === 11 ? p.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3') : p;
   const showD = d === '*' || d === '그외';
-  $('#dList').innerHTML = rows.length ? `<table><tr><th>이름</th><th>연락처</th>${showD ? '<th>지구</th>' : ''}<th>캠퍼스/교회</th><th>학년</th><th>순</th><th>신청 특강</th><th>등록 상태</th><th>참석</th><th>비고</th></tr>
+  $('#dList').innerHTML = rows.length ? `<table><tr><th>이름</th><th>연락처</th>${showD ? '<th>지구</th>' : ''}<th>캠퍼스/교회</th><th>학년</th><th>순</th><th>신청 특강</th><th>등록 상태</th><th>참석</th><th>비고</th>${me.role === 'owner' ? '<th></th>' : ''}</tr>
     ${rows.map(st => { const en = lecOf(st); return `<tr>
       <td><b>${esc(st.name)}</b></td>
       <td><a href="tel:${esc(st.phone)}">${esc(phone(st.phone))}</a></td>
@@ -560,6 +560,7 @@ function renderDistrict(){
         <option value="전참"${st.attendance === '전참' ? ' selected' : ''}>전참</option>
         <option value="부분참"${st.attendance === '부분참' ? ' selected' : ''}>부분참</option></select></td>
       <td><input data-note="${st.id}" value="${esc(st.note || '')}" placeholder="${st.attendance === '부분참' ? '예: 화·수만 참석, 목 오전 귀가' : '메모'}" style="min-width:170px;padding:6px 8px"></td>
+      ${me.role === 'owner' ? `<td><button class="danger small" data-delst="${st.id}">삭제</button></td>` : ''}
     </tr>`; }).join('')}</table>
     <p class="hint">등록 상태·참석은 고르는 즉시, 비고는 입력 후 다른 곳을 누르면 저장돼요. 부분참이면 비고에 언제 참석하는지 적어 주세요.</p>`
     : `<p class="empty">${q || only !== 'all' ? '조건에 맞는 학생이 없어요.' : '아직 이 지구에서 등록한 학생이 없어요.'}</p>`;
@@ -574,6 +575,23 @@ async function patchEnroll(id, patch, el){
   toast('저장했어요.');
   if ('reg_status' in patch || 'attendance' in patch) { renderDistrict(); renderEnrolls(); }
 }
+$('#dList').addEventListener('click', async e => {
+  const id = e.target.closest('[data-delst]')?.dataset.delst;
+  if (!id || me.role !== 'owner') return;
+  const st = students.find(x => x.id === id); if (!st) return;
+  const en = enrolls.find(x => x.student_name === st.name && x.student_phone === st.phone);
+  const lec = en ? lectures.find(l => l.id === en.lecture_id) : null;
+  if (!confirm(`${st.name} 학생을 삭제할까요?${lec ? `\n신청한 「${lec.title}」 특강도 함께 취소되고 자리가 비어요.` : ''}\n삭제하면 되돌릴 수 없어요.`)) return;
+  const btn = e.target; btn.disabled = true;
+  if (en) {
+    const r1 = await sb.from('enrollments').delete().eq('student_name', st.name).eq('student_phone', st.phone);
+    if (r1.error) { btn.disabled = false; toast('삭제 실패: ' + r1.error.message); return; }
+  }
+  const r2 = await sb.from('students').delete().eq('id', id).select('id');
+  if (r2.error || !r2.data?.length) { btn.disabled = false; toast('삭제 실패: ' + (r2.error?.message || '권한이 없어요.')); return; }
+  toast(`${st.name} 학생을 삭제했어요.`);
+  loadEnrolls();
+});
 $('#dList').addEventListener('change', e => {
   const reg = e.target.dataset.reg, note = e.target.dataset.note, att = e.target.dataset.att;
   if (att) patchEnroll(att, { attendance: e.target.value }, e.target);
