@@ -450,6 +450,15 @@ grant execute on function public.my_admin() to authenticated;
 grant execute on function public.set_my_district(text) to authenticated;
 grant execute on function public.staff_update_enrollment(uuid, text, text) to authenticated;
 grant execute on function public.staff_update_student(uuid, text, text, text) to authenticated;
+-- 간사도 학생·신청 내역 삭제 가능
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'students_admin_remove') then
+    create policy students_admin_remove on public.students for delete to authenticated using (public.is_admin());
+  end if;
+  if not exists (select 1 from pg_policies where policyname = 'enrollments_admin_remove') then
+    create policy enrollments_admin_remove on public.enrollments for delete to authenticated using (public.is_admin());
+  end if;
+end $$;
 -- 간사/관리자 전용 함수는 로그인한 사용자만
 revoke execute on function public.staff_update_student(uuid, text, text, text) from anon;
 revoke execute on function public.staff_update_enrollment(uuid, text, text) from anon;

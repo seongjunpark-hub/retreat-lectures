@@ -67,6 +67,7 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <label for="myDistrict" style="margin:0">내 지구</label>
           <select id="myDistrict" style="width:auto;min-width:150px"></select>
+          <select id="dCampus" class="hidden" style="width:auto;min-width:150px"></select>
           <input id="dEtc" class="hidden" placeholder="지구 이름 (예: 대구)" style="width:170px">
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><select id="dFilter" style="width:auto"><option value="all">모두</option><option value="yes">특강 신청</option><option value="no">미신청</option></select><input id="dSearch" placeholder="이름 검색" style="width:150px"></div>
@@ -100,6 +101,7 @@
       <span class="sum" id="blSum"></span>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <select id="blDistrict" style="width:auto"><option value="*">전체 지구</option><option>안동</option><option>영주</option><option>경주</option><option>김천구미</option><option>포항</option><option value="그외">그 외</option></select>
+        <select id="blCampus" class="hidden" style="width:auto"></select>
         <button class="ghost" id="blOpenAll">모두 펼치기</button>
       </div>
     </div>
@@ -392,7 +394,10 @@ function renderByLecture(){
   const info = e => { const st = stBy[skey(e.student_name, e.student_phone)];
     return st ? { ...e, district: st.district, campus: st.campus, church: st.church, follow_district: st.follow_district, grade: st.grade, soon_role: st.soon_role, reg_status: st.reg_status, attendance: st.attendance, note: st.note } : e; };
   const dsel = $('#blDistrict').value;
-  const keep = e => dsel === '*' || inDistrict(e, dsel);
+  fillCampusSelect($('#blCampus'), dsel, students.length ? students.map(st => ({ district: st.district, campus: st.campus, follow_district: st.follow_district })) : enrolls);
+  const bcamp = $('#blCampus').classList.contains('hidden') ? '' : $('#blCampus').value;
+  const keep = e => (dsel === '*' || inDistrict(e, dsel)) && campusMatch(e, bcamp);
+  const fLabel = bcamp ? (bcamp === ETC_OPT ? '그 외 학생' : bcamp) : (dsel === '그외' ? '그 외' : dsel);
   const open = new Set([...document.querySelectorAll('#enList details[open]')].map(d => d.dataset.id));
   let shown = 0;
   $('#enList').innerHTML = lectures.length ? lectures.map((l, i) => {
@@ -405,7 +410,7 @@ function renderByLecture(){
         <span><span style="font-size:13px;font-weight:700;color:var(--accent)">특강 ${i + 1}</span><br>
           <b style="font-size:17px;color:var(--ink)">${esc(l.title)}</b><br>
           <span style="font-size:14px;color:var(--muted);font-weight:400">${esc(l.speaker_name)}${l.location ? ' · 📍 ' + esc(l.location) : ''}</span></span>
-        <span style="font-size:15px;color:${full ? 'var(--warn)' : 'var(--ink)'};font-weight:700;white-space:nowrap">${dsel === '*' ? '' : `${esc(dsel === '그외' ? '그 외' : dsel)} ${rows.length}명 · `}${all.length} / ${l.capacity}명 ▾</span>
+        <span style="font-size:15px;color:${full ? 'var(--warn)' : 'var(--ink)'};font-weight:700;white-space:nowrap">${dsel === '*' ? '' : `${esc(fLabel)} ${rows.length}명 · `}${all.length} / ${l.capacity}명 ▾</span>
       </summary>
       <div style="padding:0 20px 18px">
       ${rows.length ? `<div class="table-scroll"><table><tr><th>#</th><th>이름</th><th>연락처</th><th>지구</th><th>캠퍼스/교회</th><th>학년</th><th>순</th><th>등록</th><th>참석</th><th>비고</th><th>신청</th>${me.role === 'owner' ? '<th></th>' : ''}</tr>
@@ -415,7 +420,7 @@ function renderByLecture(){
       </div></details>`;
   }).join('') : '<div class="card empty">등록된 특강이 없어요.</div>';
   const cap = lectures.reduce((a, l) => a + l.capacity, 0);
-  $('#blSum').innerHTML = `특강 <b>${lectures.length}</b>개 · 신청 <b>${enrolls.length}</b> / ${cap}명${dsel === '*' ? '' : ` · ${esc(dsel === '그외' ? '그 외' : dsel)} <b>${shown}</b>명`}`;
+  $('#blSum').innerHTML = `특강 <b>${lectures.length}</b>개 · 신청 <b>${enrolls.length}</b> / ${cap}명${dsel === '*' ? '' : ` · ${esc(fLabel)} <b>${shown}</b>명`}`;
 }
 $('#blDistrict').onchange = renderByLecture;
 $('#blOpenAll').onclick = () => {
@@ -450,7 +455,7 @@ async function loadSettings(){
   const { data, error } = await sb.from('settings').select('*').eq('id', 1).single();
   if (error) return;
   ['event_title','notice','access_code'].forEach(f => $('#s_' + f).value = data[f] ?? '');
-  const cm = data.campuses || {};
+  const cm = data.campuses || {}; campusCfg = cm;
   $('#campusEditor').innerHTML = DISTRICTS.map(d => `<div style="display:flex;align-items:center;gap:10px">
     <span style="width:72px;font-weight:600;font-size:14px">${d}</span>
     <input data-campus="${d}" value="${esc((cm[d] || []).join(', '))}" placeholder="예: 동국대, 위덕대"></div>`).join('');
@@ -495,6 +500,28 @@ $('#adminList').onclick = async e => {
   if (error) toast('삭제 실패'); else loadAdmins();
 };
 
+// ---------- 캠퍼스 필터 ----------
+let campusCfg = {};
+const ETC_OPT = '__etc';
+function fillCampusSelect(sel, d, pool){
+  const prev = sel.value;
+  if (!DISTRICTS.includes(d)) { sel.classList.add('hidden'); sel.innerHTML = ''; return; }
+  const list = [...(campusCfg[d] || [])];
+  pool.filter(e => e.district === d && e.campus && !list.includes(e.campus)).forEach(e => { if (!list.includes(e.campus)) list.push(e.campus); });
+  const hasEtc = pool.some(e => e.district === '그외' && e.follow_district === d);
+  sel.innerHTML = '<option value="">전체 캠퍼스</option>' + list.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')
+    + (hasEtc ? `<option value="${ETC_OPT}">그 외 지구에서 함께 온 학생</option>` : '');
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+  sel.classList.remove('hidden');
+}
+function campusMatch(e, c){
+  if (!c) return true;
+  if (c === ETC_OPT) return e.district === '그외';
+  return e.district !== '그외' && e.campus === c;
+}
+$('#dCampus').onchange = () => renderDistrict();
+$('#blCampus').onchange = () => renderByLecture();
+
 // ---------- 우리 지구 ----------
 function setupDistrict(){
   const sel = $('#myDistrict');
@@ -537,7 +564,9 @@ function renderDistrict(){
   }
   const byId = Object.fromEntries(lectures.map(l => [l.id, l]));
   const enBy = Object.fromEntries(enrolls.map(e => [skey(e.student_name, e.student_phone), e]));
-  const all = students.filter(st => inDistrict(st, d));
+  fillCampusSelect($('#dCampus'), d, students);
+  const camp = $('#dCampus').classList.contains('hidden') ? '' : $('#dCampus').value;
+  const all = students.filter(st => inDistrict(st, d) && campusMatch(st, camp));
   const lecOf = st => enBy[skey(st.name, st.phone)];
   const rows = all.filter(st => (!q || st.name.includes(q)) && (only === 'all' || (only === 'yes') === !!lecOf(st)))
     .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -545,7 +574,7 @@ function renderDistrict(){
   $('#dStats').innerHTML = `<div><b>${all.length}</b><span>등록 학생</span></div><div><b>${applied}</b><span>특강 신청</span></div><div><b>${all.length - applied}</b><span>미신청</span></div><div><b>${ga}</b><span>가등록</span></div><div><b>${all.length - ga}</b><span>완등록</span></div><div><b>${all.filter(st => st.attendance === '부분참').length}</b><span>부분참</span></div>`;
   const phone = p => p.length === 11 ? p.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3') : p;
   const showD = d === '*' || d === '그외';
-  $('#dList').innerHTML = rows.length ? `<table><tr><th>이름</th><th>연락처</th>${showD ? '<th>지구</th>' : ''}<th>캠퍼스/교회</th><th>학년</th><th>순</th><th>신청 특강</th><th>등록 상태</th><th>참석</th><th>비고</th>${me.role === 'owner' ? '<th></th>' : ''}</tr>
+  $('#dList').innerHTML = rows.length ? `<table><tr><th>이름</th><th>연락처</th>${showD ? '<th>지구</th>' : ''}<th>캠퍼스/교회</th><th>학년</th><th>순</th><th>신청 특강</th><th>등록 상태</th><th>참석</th><th>비고</th><th></th></tr>
     ${rows.map(st => { const en = lecOf(st); return `<tr>
       <td><b>${esc(st.name)}</b></td>
       <td><a href="tel:${esc(st.phone)}">${esc(phone(st.phone))}</a></td>
@@ -560,7 +589,7 @@ function renderDistrict(){
         <option value="전참"${st.attendance === '전참' ? ' selected' : ''}>전참</option>
         <option value="부분참"${st.attendance === '부분참' ? ' selected' : ''}>부분참</option></select></td>
       <td><input data-note="${st.id}" value="${esc(st.note || '')}" placeholder="${st.attendance === '부분참' ? '예: 화·수만 참석, 목 오전 귀가' : '메모'}" style="min-width:170px;padding:6px 8px"></td>
-      ${me.role === 'owner' ? `<td><button class="danger small" data-delst="${st.id}">삭제</button></td>` : ''}
+      <td><button class="danger small" data-delst="${st.id}">삭제</button></td>
     </tr>`; }).join('')}</table>
     <p class="hint">등록 상태·참석은 고르는 즉시, 비고는 입력 후 다른 곳을 누르면 저장돼요. 부분참이면 비고에 언제 참석하는지 적어 주세요.</p>`
     : `<p class="empty">${q || only !== 'all' ? '조건에 맞는 학생이 없어요.' : '아직 이 지구에서 등록한 학생이 없어요.'}</p>`;
@@ -577,7 +606,7 @@ async function patchEnroll(id, patch, el){
 }
 $('#dList').addEventListener('click', async e => {
   const id = e.target.closest('[data-delst]')?.dataset.delst;
-  if (!id || me.role !== 'owner') return;
+  if (!id) return;
   const st = students.find(x => x.id === id); if (!st) return;
   const en = enrolls.find(x => x.student_name === st.name && x.student_phone === st.phone);
   const lec = en ? lectures.find(l => l.id === en.lecture_id) : null;
